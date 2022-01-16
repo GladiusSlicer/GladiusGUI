@@ -8,22 +8,22 @@ use glam::Vec3;
 use glium::{glutin, implement_vertex, Surface, uniform};
 use native_dialog::FileDialog;
 use winit::event::{DeviceEvent, ElementState, MouseScrollDelta,WindowEvent};
-use crate::object::{load, Vertex};
+use crate::object::{load, DisplayVertex};
 
-fn vertex(pos: [f32; 3]) -> Vertex {
-    Vertex{position: (pos[0],pos[1],pos[2])}
+fn vertex(pos: [f32; 3]) -> DisplayVertex {
+    DisplayVertex{position: (pos[0],pos[1],pos[2])}
 }
 
-fn create_mesh(display: &glium::Display,) -> (glium::VertexBuffer<Vertex>, glium::IndexBuffer<u32> ) {
+fn create_mesh(display: &glium::Display,) -> (glium::VertexBuffer<DisplayVertex>, glium::IndexBuffer<u32> ) {
     create_cube_mesh(display, (-5.0,5.0),(-5.0,5.0), (0.0,10.0))
 }
 
-fn create_bp_mesh(display: &glium::Display,) -> (glium::VertexBuffer<Vertex>, glium::IndexBuffer<u32> ) {
+fn create_bp_mesh(display: &glium::Display,) -> (glium::VertexBuffer<DisplayVertex>, glium::IndexBuffer<u32> ) {
     create_cube_mesh(display, (0.0,20.0),(0.0,20.0), (-0.1,-0.00))
 }
 
 
-fn create_cube_mesh(display: &glium::Display,x: (f32,f32),y: (f32,f32),z: (f32,f32),) -> (glium::VertexBuffer<Vertex>, glium::IndexBuffer<u32> ){
+fn create_cube_mesh(display: &glium::Display,x: (f32,f32),y: (f32,f32),z: (f32,f32),) -> (glium::VertexBuffer<DisplayVertex>, glium::IndexBuffer<u32> ){
     let vertex_positions = [
         // far side (0.0, 0.0, 1.0)
         vertex([x.0, y.0, z.1]),
@@ -72,8 +72,8 @@ fn create_cube_mesh(display: &glium::Display,x: (f32,f32),y: (f32,f32),z: (f32,f
 
 }
 
-fn create_build_area(display: &glium::Display, build_x:f32, build_y : f32, build_z : f32) -> (glium::VertexBuffer<Vertex>, glium::IndexBuffer<u32> ){
-    let mut vertex_positions : Vec<Vertex> = vec![
+fn create_build_area(display: &glium::Display, build_x:f32, build_y : f32, build_z : f32) -> (glium::VertexBuffer<DisplayVertex>, glium::IndexBuffer<u32> ){
+    let mut vertex_positions : Vec<DisplayVertex> = vec![
         // far side (0.0, 0.0, 1.0)
         vertex([0.0, 0.0, 0.0]),
         vertex([0.0, build_y, 0.0]),
@@ -138,7 +138,7 @@ fn create_display(event_loop: &glutin::event_loop::EventLoop<()>) -> glium::Disp
             width: 800.0,
             height: 600.0,
         })
-        .with_title("egui_glium example");
+        .with_title("Gladius");
 
     let context_builder = glutin::ContextBuilder::new()
         .with_depth_buffer(24)
@@ -259,7 +259,7 @@ fn main() {
 
                             model_path = path.into_os_string().into_string().unwrap();
 
-                            objects.push(load(&model_path,&display));
+                            objects.extend(load(&model_path,&display).into_iter());
 
                         }
                     });
@@ -301,7 +301,6 @@ fn main() {
                     });
                     ui.horizontal(|ui| {
                         if ui.button("Slice").clicked() {
-                            println!("{{\"AutoTranslate\":[\"{}\",0,0]}} ",model_path.replace('\\',"\\\\"));
 
                             let mut  command = Command::new("slicer\\gladius_slicer.exe");
 
@@ -431,7 +430,6 @@ fn main() {
                         *control_flow = glutin::event_loop::ControlFlow::Exit;
                     }
                     WindowEvent::CursorMoved {position, ..} => {
-                        println!("{:?}",position);
                         on_render_screen = if let Some(rect ) = rect {
                             !rect.contains(Pos2{x: position.x as f32,y: position.y as f32 })
                         }
@@ -441,7 +439,6 @@ fn main() {
                         in_window = true;
                     }
                     WindowEvent::CursorLeft {..} =>{
-                        println!("LEFT");
                         in_window = false;
                     }
                     _ => {}

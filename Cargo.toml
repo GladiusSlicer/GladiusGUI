@@ -26,3 +26,5 @@ egui_glium = "0.16.0"
 glium = "0.31.0"
 
 nom_stl = "0.2.2"
+
+gladius_shared = { git = "https://github.com/GladiusSlicer/GladiusSlicer", branch = "Dev" }
