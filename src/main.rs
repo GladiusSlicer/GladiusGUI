@@ -328,6 +328,7 @@ fn main() {
 
                     objects = objects.drain(..).filter_map(|mut obj|{
                         let mut remove= false;
+                        let mut duplicate = false;
                         ui.horizontal(|ui| {
                             ui.label(obj.name.to_string());
                             ui.add(egui::DragValue::new(&mut obj.location.x)
@@ -338,16 +339,22 @@ fn main() {
                                 .speed(1.0)
                                 .clamp_range(f64::NEG_INFINITY..=f64::INFINITY)
                                 .prefix("y: "));
-                            remove = ui.button("Remove").clicked()
+                            remove = ui.button("Remove").clicked();
+                            duplicate = ui.button("Duplicate").clicked();
                         });
 
                         if !remove{
-                            Some(obj)
+                            if duplicate{
+                                Some(vec![obj.make_copy(&display),obj].into_iter())
+                            }
+                            else {
+                                Some(vec![obj].into_iter())
+                            }
                         }
                         else{
                             None
                         }
-                    }).collect();
+                    }).flatten().collect();
 
 
                 }).response.rect);

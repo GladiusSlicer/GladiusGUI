@@ -7,7 +7,7 @@ use glam::Vec3;
 use glium::implement_vertex;
 use crate::vertex;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct DisplayVertex {
     pub position: (f32, f32, f32)
 }
@@ -15,6 +15,7 @@ pub struct DisplayVertex {
 implement_vertex!(DisplayVertex, position);
 
 
+#[derive(Debug)]
 pub struct Object{
     pub name : String,
     pub file_path : String,
@@ -23,6 +24,24 @@ pub struct Object{
     pub vert_buff : glium::VertexBuffer<DisplayVertex>,
     pub index_buff: glium::IndexBuffer<u32>
 
+}
+impl Object{
+    pub fn make_copy(&self, display: &glium::Display) -> Self{
+
+
+
+        let positions = glium::VertexBuffer::new(display, &self.vert_buff.read().unwrap()).unwrap();
+        let indices = glium::IndexBuffer::new(display, glium::index::PrimitiveType::TrianglesList, &self.index_buff.read().unwrap()).unwrap();
+
+        Object{
+            name: self.name.clone(),
+            file_path:self.file_path.clone(),
+            location: self.location,
+            color: self.color,
+            vert_buff: positions,
+            index_buff: indices
+        }
+    }
 }
 
 
