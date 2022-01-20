@@ -2,13 +2,16 @@
 mod object;
 
 
-use std::process::Command;
+use std::io::{BufRead, BufReader, BufWriter};
+use std::process::{Command, Stdio};
 use egui::Pos2;
 use glam::Vec3;
 use glium::{glutin, implement_vertex, Surface, uniform};
 use native_dialog::FileDialog;
 use winit::event::{DeviceEvent, ElementState, MouseScrollDelta,WindowEvent};
 use crate::object::{load, DisplayVertex};
+
+use gladius_shared::messages::Message;
 
 fn vertex(pos: [f32; 3]) -> DisplayVertex {
     DisplayVertex{position: (pos[0],pos[1],pos[2])}
@@ -314,20 +317,27 @@ fn main() {
                                 //"{\"Raw\":[\"test_3D_models\\3DBenchy.stl\",[[1.0,0.0,0.0,124.0],[0.0,1.0,0.0,105.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]] }"
                                 command.arg(format!("{{\"Raw\":[\"{}\",{:?}]}} ",obj.file_path.replace('\\',"\\\\"),  glam::Mat4::from_translation(obj.location).transpose().to_cols_array_2d()));
                             }
-                            let child = command
+                            let mut child = command
+                                .arg("-m")
                                 .arg("-s")
                                 .arg(format!("{}",settings_path.replace('\\',"\\\\")))
                                 .arg("-o")
                                 .arg(format!("{}",output_path.replace('\\',"\\\\")))
-                                //.stdout(Stdio::piped())
+                                .stdout(Stdio::piped())
                                 .spawn()
                                 .expect("failed to execute child");
 
-                            let output = child
-                                .wait_with_output()
-                                .expect("failed to wait on child");
 
-                            println!("d {:?}",output.stdout);
+                            // Loop over the output from the first process
+                            if let Some(ref mut stdout) = child.stdout {
+
+                                for msg in serde_json::Deserializer::from_reader(stdout).into_iter::<Message>(){
+                                    println!("{:?}",msg);
+                                }
+
+                            }
+
+
 
                         }
                     });

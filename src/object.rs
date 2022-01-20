@@ -66,7 +66,7 @@ pub fn load(
     match loader.load(model_path.to_str().unwrap()) {
         Ok(v) => v,
         Err(err) => {
-            err.show_error_message();
+            //show_error_message(err);
             std::process::exit(-1);
         }
     }
