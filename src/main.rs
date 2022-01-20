@@ -302,7 +302,13 @@ fn main() {
                     ui.horizontal(|ui| {
                         if ui.button("Slice").clicked() {
 
-                            let mut  command = Command::new("slicer\\gladius_slicer.exe");
+                            let mut  command =if cfg!(target_os = "linux") {
+                                Command::new("./slicer/gladius_slicer")
+                            } else if cfg!(target_os = "windows"){
+                                Command::new("slicer\\gladius_slicer.exe")
+                            }else{
+                                unimplemented!()
+                            };
 
                             for obj in &objects{
                                 //"{\"Raw\":[\"test_3D_models\\3DBenchy.stl\",[[1.0,0.0,0.0,124.0],[0.0,1.0,0.0,105.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]] }"
