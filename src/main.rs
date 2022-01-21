@@ -4,7 +4,9 @@ mod object;
 
 use std::io::{BufRead, BufReader, BufWriter};
 use std::process::{Command, Stdio};
-use egui::Pos2;
+use egui::{Align, Direction, FontDefinitions, FontFamily, Layout, Pos2, Style, TextStyle, Vec2};
+use egui::CursorIcon::Text;
+use egui::epaint::text::layout;
 use glam::Vec3;
 use glium::{glutin, implement_vertex, Surface, uniform};
 use native_dialog::FileDialog;
@@ -245,6 +247,7 @@ fn main() {
 
             let (needs_repaint, shapes) = egui_glium.run(&display, |egui_ctx| {
                rect = Some(egui::SidePanel::left("my_side_panel").show(egui_ctx, |ui| {
+
                     ui.heading("Print Setup");
                     ui.horizontal(|ui| {
                         ui.label("Model path: ");
@@ -302,75 +305,102 @@ fn main() {
 
                         }
                     });
-                    ui.horizontal(|ui| {
-                        if ui.button("Slice").clicked() {
+                   ui.group(|ui| {
+                       objects = objects.drain(..).filter_map(|mut obj| {
+                           let mut remove = false;
+                           let mut duplicate = false;
+                           ui.horizontal(|ui| {
+                               ui.label(obj.name.to_string());
+                               ui.add(egui::DragValue::new(&mut obj.location.x)
+                                   .speed(1.0)
+                                   .clamp_range(f64::NEG_INFINITY..=f64::INFINITY)
+                                   .prefix("x: "));
+                               ui.add(egui::DragValue::new(&mut obj.location.y)
+                                   .speed(1.0)
+                                   .clamp_range(f64::NEG_INFINITY..=f64::INFINITY)
+                                   .prefix("y: "));
+                               remove = ui.button("Remove").clicked();
+                               duplicate = ui.button("Duplicate").clicked();
+                           });
 
-                            let mut  command =if cfg!(target_os = "linux") {
-                                Command::new("./slicer/gladius_slicer")
-                            } else if cfg!(target_os = "windows"){
-                                Command::new("slicer\\gladius_slicer.exe")
-                            }else{
-                                unimplemented!()
-                            };
-
-                            for obj in &objects{
-                                //"{\"Raw\":[\"test_3D_models\\3DBenchy.stl\",[[1.0,0.0,0.0,124.0],[0.0,1.0,0.0,105.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]] }"
-                                command.arg(format!("{{\"Raw\":[\"{}\",{:?}]}} ",obj.file_path.replace('\\',"\\\\"),  glam::Mat4::from_translation(obj.location).transpose().to_cols_array_2d()));
-                            }
-                            let mut child = command
-                                .arg("-m")
-                                .arg("-s")
-                                .arg(format!("{}",settings_path.replace('\\',"\\\\")))
-                                .arg("-o")
-                                .arg(format!("{}",output_path.replace('\\',"\\\\")))
-                                .stdout(Stdio::piped())
-                                .spawn()
-                                .expect("failed to execute child");
+                           if !remove {
+                               if duplicate {
+                                   Some(vec![obj.make_copy(&display), obj].into_iter())
+                               } else {
+                                   Some(vec![obj].into_iter())
+                               }
+                           } else {
+                               None
+                           }
+                       }).flatten().collect();
+                   });
 
 
-                            // Loop over the output from the first process
-                            if let Some(ref mut stdout) = child.stdout {
+                   ui.style_mut().spacing.button_padding = Vec2::new(50.,20.);
+                   ui.style_mut().body_text_style = TextStyle::Heading;
+                   ui.style_mut().override_text_style = Some(TextStyle::Heading);
 
-                                for msg in serde_json::Deserializer::from_reader(stdout).into_iter::<Message>(){
-                                    println!("{:?}",msg);
+
+
+
+                       ui.horizontal(|ui| {
+                            ui.centered_and_justified(|ui| {
+
+
+                                let mut fonts = FontDefinitions::default();
+
+                                // Large button text:
+                                fonts.family_and_size.insert(
+                                    TextStyle::Button,
+                                    (FontFamily::Proportional, 32.0)
+                                );
+
+                                //ui.ctx().set_fonts(fonts);
+
+
+                                if ui.button("Slice").clicked() {
+
+                                    let mut  command =if cfg!(target_os = "linux") {
+                                        Command::new("./slicer/gladius_slicer")
+                                    } else if cfg!(target_os = "windows"){
+                                        Command::new("slicer\\gladius_slicer.exe")
+                                    }else{
+                                        unimplemented!()
+                                    };
+
+                                    for obj in &objects{
+                                        //"{\"Raw\":[\"test_3D_models\\3DBenchy.stl\",[[1.0,0.0,0.0,124.0],[0.0,1.0,0.0,105.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]] }"
+                                        command.arg(format!("{{\"Raw\":[\"{}\",{:?}]}} ",obj.file_path.replace('\\',"\\\\"),  glam::Mat4::from_translation(obj.location).transpose().to_cols_array_2d()));
+                                    }
+                                    let mut child = command
+                                        .arg("-m")
+                                        .arg("-s")
+                                        .arg(format!("{}",settings_path.replace('\\',"\\\\")))
+                                        .arg("-o")
+                                        .arg(format!("{}",output_path.replace('\\',"\\\\")))
+                                        .stdout(Stdio::piped())
+                                        .spawn()
+                                        .expect("failed to execute child");
+
+
+                                    // Loop over the output from the first process
+                                    if let Some(ref mut stdout) = child.stdout {
+
+                                        for msg in serde_json::Deserializer::from_reader(stdout).into_iter::<Message>(){
+                                            println!("{:?}",msg);
+                                        }
+
+                                    }
+
+
+
                                 }
 
-                            }
-
-
-
-                        }
-                    });
-
-                    objects = objects.drain(..).filter_map(|mut obj|{
-                        let mut remove= false;
-                        let mut duplicate = false;
-                        ui.horizontal(|ui| {
-                            ui.label(obj.name.to_string());
-                            ui.add(egui::DragValue::new(&mut obj.location.x)
-                                .speed(1.0)
-                                .clamp_range(f64::NEG_INFINITY..=f64::INFINITY)
-                                .prefix("x: "));
-                            ui.add(egui::DragValue::new(&mut obj.location.y)
-                                .speed(1.0)
-                                .clamp_range(f64::NEG_INFINITY..=f64::INFINITY)
-                                .prefix("y: "));
-                            remove = ui.button("Remove").clicked();
-                            duplicate = ui.button("Duplicate").clicked();
+                            });
                         });
 
-                        if !remove{
-                            if duplicate{
-                                Some(vec![obj.make_copy(&display),obj].into_iter())
-                            }
-                            else {
-                                Some(vec![obj].into_iter())
-                            }
-                        }
-                        else{
-                            None
-                        }
-                    }).flatten().collect();
+
+
 
 
                 }).response.rect);
