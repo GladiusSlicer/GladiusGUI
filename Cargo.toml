@@ -31,3 +31,4 @@ gladius_shared = { git = "https://github.com/GladiusSlicer/GladiusSlicer", branc
 
 serde_json = "1.0.74"
 serde = { version = "1.0", features = ["derive"] }
+num_cpus = "1.13.1"

@@ -378,6 +378,8 @@ fn main() {
                                         .arg(format!("{}",settings_path.replace('\\',"\\\\")))
                                         .arg("-o")
                                         .arg(format!("{}",output_path.replace('\\',"\\\\")))
+                                        .arg("-j")
+                                        .arg(format!("{}",(num_cpus::get()).max(1)))
                                         .stdout(Stdio::piped())
                                         .spawn()
                                         .expect("failed to execute child");
