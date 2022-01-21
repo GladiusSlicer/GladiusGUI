@@ -2,7 +2,8 @@
 mod object;
 
 
-use std::io::{BufRead, BufReader, BufWriter};
+use std::fs::File;
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::process::{Command, Stdio};
 use egui::{Align, Direction, FontDefinitions, FontFamily, Layout, Pos2, Style, TextStyle, Vec2};
 use egui::CursorIcon::Text;
@@ -227,6 +228,9 @@ fn main() {
     let mut left_mouse_button_state = ElementState::Released;
     let mut on_render_screen = false;
     let mut in_window = false;
+    let mut calc_vals = None;
+    let mut gcode = None;
+    let mut error = None;
 
      let mut model_path="".to_string();
      let mut settings_path= "".to_string();
@@ -247,64 +251,42 @@ fn main() {
 
             let (needs_repaint, shapes) = egui_glium.run(&display, |egui_ctx| {
                rect = Some(egui::SidePanel::left("my_side_panel").show(egui_ctx, |ui| {
+                   ui.heading("Print Setup");
+                   ui.horizontal(|ui| {
+                       ui.label("Model path: ");
+                       if ui.button("Choose Model").clicked() {
+                           let path = FileDialog::new()
+                               .add_filter("Supported Model Types", &["stl", "3mf"])
+                               .show_open_single_file()
+                               .unwrap();
 
-                    ui.heading("Print Setup");
-                    ui.horizontal(|ui| {
-                        ui.label("Model path: ");
-                        ui.text_edit_singleline(&mut model_path);
-                        if ui.button("Choose Model").clicked() {
-                            let path = FileDialog::new()
-                                .add_filter("Supported Model Types", &["stl","3mf"])
-                                .show_open_single_file()
-                                .unwrap();
+                           let path = match path {
+                               Some(path) => path,
+                               None => return,
+                           };
 
-                            let path = match path {
-                                Some(path) => path,
-                                None => return,
-                            };
+                           model_path = path.into_os_string().into_string().unwrap();
 
-                            model_path = path.into_os_string().into_string().unwrap();
+                           objects.extend(load(&model_path, &display).into_iter());
+                       }
+                   });
+                   ui.horizontal(|ui| {
+                       ui.label("Settings path: ");
+                       ui.text_edit_singleline(&mut settings_path);
+                       if ui.button("Choose settings").clicked() {
+                           let path = FileDialog::new()
+                               .add_filter("Supported settings Types", &["json"])
+                               .show_open_single_file()
+                               .unwrap();
 
-                            objects.extend(load(&model_path,&display).into_iter());
+                           let path = match path {
+                               Some(path) => path,
+                               None => return,
+                           };
 
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Settings path: ");
-                        ui.text_edit_singleline(&mut settings_path);
-                        if ui.button("Choose settings").clicked() {
-                            let path = FileDialog::new()
-                                .add_filter("Supported settings Types", &["json"])
-                                .show_open_single_file()
-                                .unwrap();
-
-                            let path = match path {
-                                Some(path) => path,
-                                None => return,
-                            };
-
-                            settings_path = path.into_os_string().into_string().unwrap();
-
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Output path: ");
-                        ui.text_edit_singleline(&mut output_path);
-                        if ui.button("Choose Output File").clicked() {
-                            let path = FileDialog::new()
-                                .add_filter("gcode", &["gcode"])
-                                .show_save_single_file()
-                                .unwrap();
-
-                            let path = match path {
-                                Some(path) => path,
-                                None => return,
-                            };
-
-                            output_path = path.into_os_string().into_string().unwrap();
-
-                        }
-                    });
+                           settings_path = path.into_os_string().into_string().unwrap();
+                       }
+                   });
                    ui.group(|ui| {
                        objects = objects.drain(..).filter_map(|mut obj| {
                            let mut remove = false;
@@ -335,73 +317,109 @@ fn main() {
                        }).flatten().collect();
                    });
 
-
-                   ui.style_mut().spacing.button_padding = Vec2::new(50.,20.);
-                   ui.style_mut().body_text_style = TextStyle::Heading;
-                   ui.style_mut().override_text_style = Some(TextStyle::Heading);
+                   ui.horizontal(|ui| {
 
 
+                       ui.style_mut().spacing.button_padding = Vec2::new(50., 20.);
+                       ui.style_mut().body_text_style = TextStyle::Heading;
+                       ui.style_mut().override_text_style = Some(TextStyle::Heading);
 
 
+                       ui.centered_and_justified(|ui| {
+                           let mut fonts = FontDefinitions::default();
+
+                           // Large button text:
+                           fonts.family_and_size.insert(
+                               TextStyle::Button,
+                               (FontFamily::Proportional, 32.0)
+                           );
+
+                           //ui.ctx().set_fonts(fonts);
+
+
+                           if ui.button("Slice").clicked() {
+                               let mut command = if cfg!(target_os = "linux") {
+                                   Command::new("./slicer/gladius_slicer")
+                               } else if cfg!(target_os = "windows") {
+                                   Command::new("slicer\\gladius_slicer.exe")
+                               } else {
+                                   unimplemented!()
+                               };
+
+                               for obj in &objects {
+                                   //"{\"Raw\":[\"test_3D_models\\3DBenchy.stl\",[[1.0,0.0,0.0,124.0],[0.0,1.0,0.0,105.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]] }"
+                                   command.arg(format!("{{\"Raw\":[\"{}\",{:?}]}} ", obj.file_path.replace('\\', "\\\\"), glam::Mat4::from_translation(obj.location).transpose().to_cols_array_2d()));
+                               }
+                               let mut child = command
+                                   .arg("-m")
+                                   .arg("-s")
+                                   .arg(format!("{}", settings_path.replace('\\', "\\\\")))
+                                   .arg("-j")
+                                   .arg(format!("{}", (num_cpus::get()).max(1)))
+                                   .stdout(Stdio::piped())
+                                   .spawn()
+                                   .expect("failed to execute child");
+
+
+                               // Loop over the output from the first process
+                               if let Some(ref mut stdout) = child.stdout {
+                                   for msg in serde_json::Deserializer::from_reader(stdout).into_iter::<Message>() {
+                                       match msg.unwrap() {
+                                           Message::CalculatedValues(cv) => {
+                                               calc_vals = Some(cv);
+                                           }
+                                           Message::Commands(_) => {}
+                                           Message::GCode(str) => {
+                                               gcode = Some(str);
+                                           }
+                                           Message::Error(err) => {
+                                               error = Some(err);
+                                           }
+                                       }
+                                   }
+                               }
+                           }
+                       });
+                   });
+
+                   if let Some(cv) = calc_vals.as_ref() {
                        ui.horizontal(|ui| {
-                            ui.centered_and_justified(|ui| {
+                           ui.label(format!("This print will use {:.0} cm^3 of plastic",cv.plastic_volume));
+                       });
+                       ui.horizontal(|ui| {
+                           ui.label(format!("This print will use {:.0} grams of plastic",cv.plastic_weight));
+                       });
+                       ui.horizontal(|ui| {
+                           let (hour,min,_,_) = cv.get_hours_minutes_seconds_fract_time();
+                           ui.label(format!("This print will take {} hours and {} minutes",hour,min));
+                       });
+                   };
+
+                   if let Some(str) = gcode.as_ref() {
+                       ui.horizontal(|ui| {
+                           ui.style_mut().spacing.button_padding = Vec2::new(50., 20.);
+                           ui.style_mut().body_text_style = TextStyle::Heading;
+                           ui.style_mut().override_text_style = Some(TextStyle::Heading);
 
 
-                                let mut fonts = FontDefinitions::default();
+                           ui.centered_and_justified(|ui| {
+                               if ui.button("Save").clicked() {
+                                   let path = FileDialog::new()
+                                       .add_filter("gcode", &["gcode"])
+                                       .show_save_single_file()
+                                       .unwrap();
 
-                                // Large button text:
-                                fonts.family_and_size.insert(
-                                    TextStyle::Button,
-                                    (FontFamily::Proportional, 32.0)
-                                );
+                                   let path = match path {
+                                       Some(path) => path,
+                                       None => return,
+                                   };
 
-                                //ui.ctx().set_fonts(fonts);
-
-
-                                if ui.button("Slice").clicked() {
-
-                                    let mut  command =if cfg!(target_os = "linux") {
-                                        Command::new("./slicer/gladius_slicer")
-                                    } else if cfg!(target_os = "windows"){
-                                        Command::new("slicer\\gladius_slicer.exe")
-                                    }else{
-                                        unimplemented!()
-                                    };
-
-                                    for obj in &objects{
-                                        //"{\"Raw\":[\"test_3D_models\\3DBenchy.stl\",[[1.0,0.0,0.0,124.0],[0.0,1.0,0.0,105.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]] }"
-                                        command.arg(format!("{{\"Raw\":[\"{}\",{:?}]}} ",obj.file_path.replace('\\',"\\\\"),  glam::Mat4::from_translation(obj.location).transpose().to_cols_array_2d()));
-                                    }
-                                    let mut child = command
-                                        .arg("-m")
-                                        .arg("-s")
-                                        .arg(format!("{}",settings_path.replace('\\',"\\\\")))
-                                        .arg("-o")
-                                        .arg(format!("{}",output_path.replace('\\',"\\\\")))
-                                        .arg("-j")
-                                        .arg(format!("{}",(num_cpus::get()).max(1)))
-                                        .stdout(Stdio::piped())
-                                        .spawn()
-                                        .expect("failed to execute child");
-
-
-                                    // Loop over the output from the first process
-                                    if let Some(ref mut stdout) = child.stdout {
-
-                                        for msg in serde_json::Deserializer::from_reader(stdout).into_iter::<Message>(){
-                                            println!("{:?}",msg);
-                                        }
-
-                                    }
-
-
-
-                                }
-
-                            });
-                        });
-
-
+                                   let mut file = File::create(path).unwrap();
+                                   file.write_all(str.as_bytes());
+                               }
+                           });
+                       });
+                   }
 
 
 
