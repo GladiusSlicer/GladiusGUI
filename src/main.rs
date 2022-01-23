@@ -1,35 +1,48 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 mod object;
 
-
+use crate::object::{load, DisplayVertex};
+use egui::epaint::text::layout;
+use egui::plot::{Corner, Legend, Line, Plot, Value, Values};
+use egui::CursorIcon::Text;
+use egui::{
+    vec2, Align, Direction, FontDefinitions, FontFamily, Layout, Pos2, Sense, Slider, Style,
+    TextStyle, Vec2,
+};
+use gladius_shared::messages::Message;
+use glam::Vec3;
+use glium::{glutin, implement_vertex, uniform, Surface};
+use itertools::Itertools;
+use native_dialog::FileDialog;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::process::{Command, Stdio};
-use egui::{Align, Direction, FontDefinitions, FontFamily, Layout, Pos2, Style, TextStyle, Vec2};
-use egui::CursorIcon::Text;
-use egui::epaint::text::layout;
-use glam::Vec3;
-use glium::{glutin, implement_vertex, Surface, uniform};
-use native_dialog::FileDialog;
-use winit::event::{DeviceEvent, ElementState, MouseScrollDelta,WindowEvent};
-use crate::object::{load, DisplayVertex};
-
-use gladius_shared::messages::Message;
+use winit::event::{DeviceEvent, ElementState, MouseScrollDelta, WindowEvent};
 
 fn vertex(pos: [f32; 3]) -> DisplayVertex {
-    DisplayVertex{position: (pos[0],pos[1],pos[2])}
+    DisplayVertex {
+        position: (pos[0], pos[1], pos[2]),
+    }
 }
 
-fn create_mesh(display: &glium::Display,) -> (glium::VertexBuffer<DisplayVertex>, glium::IndexBuffer<u32> ) {
-    create_cube_mesh(display, (-5.0,5.0),(-5.0,5.0), (0.0,10.0))
+fn create_mesh(
+    display: &glium::Display,
+) -> (glium::VertexBuffer<DisplayVertex>, glium::IndexBuffer<u32>) {
+    create_cube_mesh(display, (-5.0, 5.0), (-5.0, 5.0), (0.0, 10.0))
 }
 
-fn create_bp_mesh(display: &glium::Display,) -> (glium::VertexBuffer<DisplayVertex>, glium::IndexBuffer<u32> ) {
-    create_cube_mesh(display, (0.0,20.0),(0.0,20.0), (-0.1,-0.00))
+fn create_bp_mesh(
+    display: &glium::Display,
+) -> (glium::VertexBuffer<DisplayVertex>, glium::IndexBuffer<u32>) {
+    create_cube_mesh(display, (0.0, 20.0), (0.0, 20.0), (-0.1, -0.00))
 }
 
-
-fn create_cube_mesh(display: &glium::Display,x: (f32,f32),y: (f32,f32),z: (f32,f32),) -> (glium::VertexBuffer<DisplayVertex>, glium::IndexBuffer<u32> ){
+fn create_cube_mesh(
+    display: &glium::Display,
+    x: (f32, f32),
+    y: (f32, f32),
+    z: (f32, f32),
+) -> (glium::VertexBuffer<DisplayVertex>, glium::IndexBuffer<u32>) {
     let vertex_positions = [
         // far side (0.0, 0.0, 1.0)
         vertex([x.0, y.0, z.1]),
@@ -73,13 +86,22 @@ fn create_cube_mesh(display: &glium::Display,x: (f32,f32),y: (f32,f32),z: (f32,f
     ];
 
     let positions = glium::VertexBuffer::new(display, &vertex_positions).unwrap();
-    let indices = glium::IndexBuffer::new(display, glium::index::PrimitiveType::TrianglesList, index_data).unwrap();
-    (positions,indices)
-
+    let indices = glium::IndexBuffer::new(
+        display,
+        glium::index::PrimitiveType::TrianglesList,
+        index_data,
+    )
+    .unwrap();
+    (positions, indices)
 }
 
-fn create_build_area(display: &glium::Display, build_x:f32, build_y : f32, build_z : f32) -> (glium::VertexBuffer<DisplayVertex>, glium::IndexBuffer<u32> ){
-    let mut vertex_positions : Vec<DisplayVertex> = vec![
+fn create_build_area(
+    display: &glium::Display,
+    build_x: f32,
+    build_y: f32,
+    build_z: f32,
+) -> (glium::VertexBuffer<DisplayVertex>, glium::IndexBuffer<u32>) {
+    let mut vertex_positions: Vec<DisplayVertex> = vec![
         // far side (0.0, 0.0, 1.0)
         vertex([0.0, 0.0, 0.0]),
         vertex([0.0, build_y, 0.0]),
@@ -92,50 +114,38 @@ fn create_build_area(display: &glium::Display, build_x:f32, build_y : f32, build
     ];
 
     let mut index_data: Vec<u32> = vec![
-        0, 1,
-        0, 2,
-        1, 3,
-        2, 3,
-        4, 5,
-        4, 6,
-        5, 7,
-        6, 7,
-        0, 4,
-        1, 5,
-        2, 6,
-        3, 7,
+        0, 1, 0, 2, 1, 3, 2, 3, 4, 5, 4, 6, 5, 7, 6, 7, 0, 4, 1, 5, 2, 6, 3, 7,
     ];
 
     let step_size = 10.0;
-    (0..(build_x / step_size)as u32)
+    (0..(build_x / step_size) as u32)
         .into_iter()
         .map(|index| index as f32 * step_size)
-        .for_each(|x|{
+        .for_each(|x| {
             let index_pos = vertex_positions.len() as u32;
             vertex_positions.push(vertex([x, 0.0, 0.0]));
             vertex_positions.push(vertex([x, build_y, 0.0]));
             index_data.push(index_pos);
-            index_data.push(index_pos+1);
+            index_data.push(index_pos + 1);
         });
 
-    (0..(build_y / step_size)as u32)
+    (0..(build_y / step_size) as u32)
         .into_iter()
         .map(|index| index as f32 * step_size)
-        .for_each(|y|{
+        .for_each(|y| {
             let index_pos = vertex_positions.len() as u32;
             vertex_positions.push(vertex([0.0, y, 0.0]));
             vertex_positions.push(vertex([build_x, y, 0.0]));
             index_data.push(index_pos);
-            index_data.push(index_pos+1);
+            index_data.push(index_pos + 1);
         });
 
     let positions = glium::VertexBuffer::new(display, &vertex_positions).unwrap();
-    let indices = glium::IndexBuffer::new(display, glium::index::PrimitiveType::LinesList, &index_data).unwrap();
-    (positions,indices)
-
+    let indices =
+        glium::IndexBuffer::new(display, glium::index::PrimitiveType::LinesList, &index_data)
+            .unwrap();
+    (positions, indices)
 }
-
-
 
 fn create_display(event_loop: &glutin::event_loop::EventLoop<()>) -> glium::Display {
     let window_builder = glutin::window::WindowBuilder::new()
@@ -160,7 +170,6 @@ fn main() {
     let display = create_display(&event_loop);
 
     let mut egui_glium = egui_glium::EguiGlium::new(&display);
-
 
     let vertex_shader_src = r#"
         #version 150
@@ -222,28 +231,45 @@ fn main() {
         }
     "#;
     let mut camera_pitch = std::f32::consts::FRAC_PI_4;
-    let mut camera_yaw= -std::f32::consts::FRAC_PI_4 + 0.12;
-    let mut zoom= 50.0;
-    let mut center_pos= (125.0, 105.0);
+    let mut camera_yaw = -std::f32::consts::FRAC_PI_4 + 0.12;
+    let mut zoom = 50.0;
+    let mut center_pos = (125.0, 105.0);
     let mut left_mouse_button_state = ElementState::Released;
     let mut on_render_screen = false;
     let mut in_window = false;
     let mut calc_vals = None;
     let mut gcode = None;
+    let mut commands = None;
     let mut error = None;
+    let mut index = 0;
+    let mut layers = 0;
 
-     let mut model_path="".to_string();
-     let mut settings_path= "".to_string();
-     let mut output_path= "".to_string();
+    let mut viewer_open = false;
 
-    let model_program = glium::Program::from_source(&display, vertex_shader_src, fragment_shader_src, None).unwrap();
-    let line_program = glium::Program::from_source(&display, line_vertex_shader_src, line_fragment_shader_src, None).unwrap();
+    let build_x = 250.0;
+    let build_y = 210.0;
+    let build_z = 210.0;
+
+    let mut model_path = "".to_string();
+    let mut settings_path = "".to_string();
+    let mut output_path = "".to_string();
+
+    let model_program =
+        glium::Program::from_source(&display, vertex_shader_src, fragment_shader_src, None)
+            .unwrap();
+    let line_program = glium::Program::from_source(
+        &display,
+        line_vertex_shader_src,
+        line_fragment_shader_src,
+        None,
+    )
+    .unwrap();
 
     let mut objects = vec![];
 
     let mut rect = None;
 
-    let (line_positions, line_indices) = create_build_area(&display,250.0 , 210.0,210.0);
+    let (line_positions, line_indices) = create_build_area(&display, build_x, build_y, build_z);
     event_loop.run(move |event, _, control_flow| {
         let mut redraw = || {
             let mut quit = false;
@@ -338,6 +364,13 @@ fn main() {
 
 
                            if ui.button("Slice").clicked() {
+
+                               calc_vals = None;
+                               gcode = None;
+                               error = None;
+
+                               viewer_open = true;
+
                                let mut command = if cfg!(target_os = "linux") {
                                    Command::new("./slicer/gladius_slicer")
                                } else if cfg!(target_os = "windows") {
@@ -368,7 +401,9 @@ fn main() {
                                            Message::CalculatedValues(cv) => {
                                                calc_vals = Some(cv);
                                            }
-                                           Message::Commands(_) => {}
+                                           Message::Commands(cmds) => {
+                                               commands = Some(cmds);
+                                           }
                                            Message::GCode(str) => {
                                                gcode = Some(str);
                                            }
@@ -392,6 +427,17 @@ fn main() {
                        ui.horizontal(|ui| {
                            let (hour,min,_,_) = cv.get_hours_minutes_seconds_fract_time();
                            ui.label(format!("This print will take {} hours and {} minutes",hour,min));
+                       });
+                   };
+
+                   if let Some(err) = error.as_ref() {
+
+                       let (code, message) = err.get_code_and_message();
+                       ui.horizontal(|ui| {
+                           ui.label(format!("Error {:#X}",code));
+                       });
+                       ui.horizontal(|ui| {
+                           ui.label(format!("{}",message));
                        });
                    };
 
@@ -420,12 +466,93 @@ fn main() {
                            });
                        });
                    }
+                   if let Some(cmds) = commands.as_ref() {
+                        egui::Window::new("2DViewer")
+                            .open(&mut viewer_open)
+                            .default_size(vec2(400.0, 400.0))
+                            .show(egui_ctx, |ui| {
+
+
+                                let mut line = Line::new(Values::from_values(vec![Value{x:0.0,y: 0.0},Value{x:0.0,y: build_y as f64 },Value{x:build_x as f64 ,y: build_y as f64 },Value{x:build_x as f64,y: 0.0  },Value{x:0.0,y: 0.0}])).width(20.0);
+
+
+                                let mut layer_height = 0.0;
+
+
+                                ui.add(egui::DragValue::new(&mut index)
+                                       .speed(1)
+                                       .clamp_range(0..=layers-1)
+                                       .prefix("x: "));
+
+
+                                let plot = Plot::new("items_demo")
+                                    .legend(Legend::default().position(Corner::RightBottom))
+                                    .show_x(false)
+                                    .show_y(false)
+                                    .data_aspect(1.0);
+
+
+                                plot.show(ui, |plot_ui| {
+                                    plot_ui.line(line.name("Border"));
+
+                                    let p1 = plot_ui.screen_from_plot(Value{x:0.0,y:0.0});
+                                    let p2 = plot_ui.screen_from_plot(Value{x:0.0,y:1.0});
+
+
+                                    let pixels_per_plot_unit = (p2-p1).length();
+
+
+                                    let mut moves : Vec<_>= (&cmds
+                                        .iter()
+                                        .group_by(|cmd|{
+                                            if let gladius_shared::types::Command::LayerChange { z } = cmd{
+                                                *z == layer_height
+                                            }else{
+                                                true
+                                            }
+                                        }))
+                                        .into_iter()
+                                        .filter_map(|(change,layer)|{
+                                            if !change{
+                                                None
+                                            }else{
+                                                let lines :Vec<_> = layer.into_iter().filter_map(|cmd|{
+
+                                                    if let gladius_shared::types::Command::MoveAndExtrude{start,end,width,..} = cmd{
+                                                        Some(Line::new(Values::from_values(vec![Value{x:start.x,y:start.y},Value{x:end.x,y: end.y }]))
+                                                            .width(*width as f32 * pixels_per_plot_unit))
+
+
+                                                    }else{
+                                                        None
+                                                    }
+                                                }).collect();
+
+                                                Some(lines)
+                                            }
+                                        })
+                                        .collect();
+
+                                    layers = moves.len();
+
+                                    for move_line in moves.remove(index){
+                                        plot_ui.line(move_line.name("Move"));
+                                    }
+                                });
+
+                            });
+                   }
 
 
 
                 }).response.rect);
 
             });
+
+
+
+
+
 
             *control_flow = if quit {
                 glutin::event_loop::ControlFlow::Exit
@@ -560,7 +687,6 @@ fn main() {
     });
 }
 
-
 fn view_matrix(position: &[f32; 3], direction: &[f32; 3], up: &[f32; 3]) -> [[f32; 4]; 4] {
     let f = {
         let f = direction;
@@ -569,9 +695,11 @@ fn view_matrix(position: &[f32; 3], direction: &[f32; 3], up: &[f32; 3]) -> [[f3
         [f[0] / len, f[1] / len, f[2] / len]
     };
 
-    let s = [up[1] * f[2] - up[2] * f[1],
-             up[2] * f[0] - up[0] * f[2],
-             up[0] * f[1] - up[1] * f[0]];
+    let s = [
+        up[1] * f[2] - up[2] * f[1],
+        up[2] * f[0] - up[0] * f[2],
+        up[0] * f[1] - up[1] * f[0],
+    ];
 
     let s_norm = {
         let len = s[0] * s[0] + s[1] * s[1] + s[2] * s[2];
@@ -579,13 +707,17 @@ fn view_matrix(position: &[f32; 3], direction: &[f32; 3], up: &[f32; 3]) -> [[f3
         [s[0] / len, s[1] / len, s[2] / len]
     };
 
-    let u = [f[1] * s_norm[2] - f[2] * s_norm[1],
-             f[2] * s_norm[0] - f[0] * s_norm[2],
-             f[0] * s_norm[1] - f[1] * s_norm[0]];
+    let u = [
+        f[1] * s_norm[2] - f[2] * s_norm[1],
+        f[2] * s_norm[0] - f[0] * s_norm[2],
+        f[0] * s_norm[1] - f[1] * s_norm[0],
+    ];
 
-    let p = [-position[0] * s_norm[0] - position[1] * s_norm[1] - position[2] * s_norm[2],
-             -position[0] * u[0] - position[1] * u[1] - position[2] * u[2],
-             -position[0] * f[0] - position[1] * f[1] - position[2] * f[2]];
+    let p = [
+        -position[0] * s_norm[0] - position[1] * s_norm[1] - position[2] * s_norm[2],
+        -position[0] * u[0] - position[1] * u[1] - position[2] * u[2],
+        -position[0] * f[0] - position[1] * f[1] - position[2] * f[2],
+    ];
 
     [
         [s_norm[0], u[0], f[0], 0.0],
