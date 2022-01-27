@@ -327,6 +327,13 @@ fn main() {
                                    .speed(1.0)
                                    .clamp_range(f64::NEG_INFINITY..=f64::INFINITY)
                                    .prefix("y: "));
+                               ui.add(egui::DragValue::new(&mut obj.scale.x)
+                                   .speed(0.01)
+                                   .clamp_range(0.0..=f64::INFINITY)
+                                   .prefix("scale: "));
+
+                               obj.scale.y = obj.scale.x;
+                               obj.scale.z = obj.scale.x;
                                remove = ui.button("Remove").clicked();
                                duplicate = ui.button("Duplicate").clicked();
                            });
@@ -381,7 +388,7 @@ fn main() {
 
                                for obj in &objects {
                                    //"{\"Raw\":[\"test_3D_models\\3DBenchy.stl\",[[1.0,0.0,0.0,124.0],[0.0,1.0,0.0,105.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]] }"
-                                   command.arg(format!("{{\"Raw\":[\"{}\",{:?}]}} ", obj.file_path.replace('\\', "\\\\"), glam::Mat4::from_translation(obj.location).transpose().to_cols_array_2d()));
+                                   command.arg(format!("{{\"Raw\":[\"{}\",{:?}]}} ", obj.file_path.replace('\\', "\\\\"), (glam::Mat4::from_translation(obj.location) * glam::Mat4::from_scale(obj.scale) *glam::Mat4::from_translation(obj.default_offset)).transpose().to_cols_array_2d()));
                                }
                                let mut child = command
                                    .arg("-m")
@@ -599,7 +606,7 @@ fn main() {
                 };
 
                 for obj in &objects{
-                    let model = glam::Mat4::from_translation(obj.location).to_cols_array_2d();
+                    let model = (glam::Mat4::from_translation(obj.location) * glam::Mat4::from_scale(obj.scale) *glam::Mat4::from_translation(obj.default_offset)).to_cols_array_2d();
                     let (positions, indices) = (&obj.vert_buff,&obj.index_buff);//create_mesh(&display);
                     target.draw(positions, indices, &model_program, &uniform! { model: model, view: view, perspective: perspective }, &params).unwrap();
                 }
