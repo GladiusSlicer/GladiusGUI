@@ -2,10 +2,9 @@ use crate::vertex;
 use gladius_shared::loader::*;
 use glam::Vec3;
 use glium::implement_vertex;
-use std::cmp::min;
 use std::ffi::OsStr;
-use std::io::BufReader;
 use std::path::Path;
+use gladius_shared::error::SlicerErrors;
 
 #[derive(Copy, Clone, Debug)]
 pub struct DisplayVertex {
@@ -48,7 +47,7 @@ impl Object {
     }
 }
 
-pub fn load(filepath: &str, display: &glium::Display) -> Vec<Object> {
+pub fn load(filepath: &str, display: &glium::Display) -> Result<Vec<Object>,SlicerErrors> {
     let model_path = Path::new(filepath);
     let extension = model_path
         .extension()
@@ -61,13 +60,8 @@ pub fn load(filepath: &str, display: &glium::Display) -> Vec<Object> {
         _ => panic!("File Format {} not supported", extension),
     };
 
-    match loader.load(model_path.to_str().unwrap()) {
-        Ok(v) => v,
-        Err(err) => {
-            //show_error_message(err);
-            std::process::exit(-1);
-        }
-    }
+
+    Ok(loader.load(model_path.to_str().unwrap())?
     .into_iter()
     .map(|(vertices, triangles)| {
         let display_vertices: Vec<DisplayVertex> = vertices
@@ -123,5 +117,5 @@ pub fn load(filepath: &str, display: &glium::Display) -> Vec<Object> {
             vert_buff: positions,
         }
     })
-    .collect()
+    .collect())
 }

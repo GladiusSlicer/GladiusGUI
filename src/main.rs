@@ -2,22 +2,18 @@
 mod object;
 
 use crate::object::{load, DisplayVertex};
-use egui::epaint::text::layout;
 use egui::plot::{Corner, Legend, Line, Plot, Value, Values};
-use egui::CursorIcon::Text;
-use egui::{
-    vec2, Align, Direction, FontDefinitions, FontFamily, Layout, Pos2, Sense, Slider, Style,
-    TextStyle, Vec2,
-};
+use egui::{vec2, FontDefinitions, FontFamily, Pos2, TextStyle, Vec2, Stroke, Color32};
 use gladius_shared::messages::Message;
 use glam::Vec3;
-use glium::{glutin, implement_vertex, uniform, Surface};
+use glium::{glutin, uniform};
 use itertools::Itertools;
 use native_dialog::FileDialog;
 use std::fs::File;
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::io::{ Write};
 use std::process::{Command, Stdio};
 use winit::event::{DeviceEvent, ElementState, MouseScrollDelta, WindowEvent};
+use winit::window::Fullscreen;
 
 fn vertex(pos: [f32; 3]) -> DisplayVertex {
     DisplayVertex {
@@ -25,6 +21,7 @@ fn vertex(pos: [f32; 3]) -> DisplayVertex {
     }
 }
 
+/*
 fn create_mesh(
     display: &glium::Display,
 ) -> (glium::VertexBuffer<DisplayVertex>, glium::IndexBuffer<u32>) {
@@ -93,7 +90,7 @@ fn create_cube_mesh(
     )
     .unwrap();
     (positions, indices)
-}
+}*/
 
 fn create_build_area(
     display: &glium::Display,
@@ -150,10 +147,7 @@ fn create_build_area(
 fn create_display(event_loop: &glutin::event_loop::EventLoop<()>) -> glium::Display {
     let window_builder = glutin::window::WindowBuilder::new()
         .with_resizable(true)
-        .with_inner_size(glutin::dpi::LogicalSize {
-            width: 800.0,
-            height: 600.0,
-        })
+        .with_maximized(true)
         .with_title("Gladius");
 
     let context_builder = glutin::ContextBuilder::new()
@@ -232,7 +226,7 @@ fn main() {
     "#;
     let mut camera_pitch = std::f32::consts::FRAC_PI_4;
     let mut camera_yaw = -std::f32::consts::FRAC_PI_4 + 0.12;
-    let mut zoom = 50.0;
+    let mut zoom = 400.0;
     let mut center_pos = (125.0, 105.0);
     let mut left_mouse_button_state = ElementState::Released;
     let mut on_render_screen = false;
@@ -252,7 +246,6 @@ fn main() {
 
     let mut model_path = "".to_string();
     let mut settings_path = "".to_string();
-    let mut output_path = "".to_string();
 
     let model_program =
         glium::Program::from_source(&display, vertex_shader_src, fragment_shader_src, None)
@@ -293,7 +286,11 @@ fn main() {
 
                            model_path = path.into_os_string().into_string().unwrap();
 
-                           objects.extend(load(&model_path, &display).into_iter());
+                           match load(&model_path, &display)
+                           {
+                               Ok(objs) => {objects.extend(objs.into_iter());}
+                               Err(e) => {error = Some(e)}
+                           }
                        }
                    });
                    ui.horizontal(|ui| {
@@ -409,6 +406,8 @@ fn main() {
                                                calc_vals = Some(cv);
                                            }
                                            Message::Commands(cmds) => {
+                                               index = 0;
+                                               layers = 0;
                                                commands = Some(cmds);
                                            }
                                            Message::GCode(str) => {
@@ -468,7 +467,7 @@ fn main() {
                                    };
 
                                    let mut file = File::create(path).unwrap();
-                                   file.write_all(str.as_bytes());
+                                   file.write_all(str.as_bytes()).unwrap();
                                }
                            });
                        });
@@ -513,7 +512,9 @@ fn main() {
                                         .iter()
                                         .group_by(|cmd|{
                                             if let gladius_shared::types::Command::LayerChange { z } = cmd{
-                                                *z == layer_height
+                                                let r = *z == layer_height;
+                                                layer_height = *z;
+                                                r
                                             }else{
                                                 true
                                             }
@@ -527,8 +528,7 @@ fn main() {
 
                                                     if let gladius_shared::types::Command::MoveAndExtrude{start,end,width,..} = cmd{
                                                         Some(Line::new(Values::from_values(vec![Value{x:start.x,y:start.y},Value{x:end.x,y: end.y }]))
-                                                            .width(*width as f32 * pixels_per_plot_unit))
-
+                                                                 .stroke(Stroke{width: *width as f32 * pixels_per_plot_unit,color: Color32::BLUE}))
 
                                                     }else{
                                                         None
@@ -666,7 +666,7 @@ fn main() {
                     }
 
                     DeviceEvent::MouseMotion {delta: (dx,dy)} =>{
-                        if let Some(rect ) = rect {
+                        if let Some(_rect ) = rect {
                             if left_mouse_button_state == ElementState::Pressed && on_render_screen && in_window{
                                 camera_yaw += dx as f32 * 0.01;
                                 camera_pitch = (camera_pitch + dy as f32 * 0.01).min(std::f32::consts::FRAC_PI_2 - 0.001).max(-std::f32::consts::FRAC_PI_2 + 0.001);
@@ -675,7 +675,7 @@ fn main() {
                     }
                     DeviceEvent::MouseWheel {delta} =>{
                         if  on_render_screen && in_window {
-                            if let MouseScrollDelta::LineDelta(x, y) = delta {
+                            if let MouseScrollDelta::LineDelta(_x, y) = delta {
                                 zoom = (zoom * (1.0 - (0.1 * y.signum()))).min(1000.0).max(5.0);
                             }
                         }
@@ -692,44 +692,4 @@ fn main() {
             },
         }
     });
-}
-
-fn view_matrix(position: &[f32; 3], direction: &[f32; 3], up: &[f32; 3]) -> [[f32; 4]; 4] {
-    let f = {
-        let f = direction;
-        let len = f[0] * f[0] + f[1] * f[1] + f[2] * f[2];
-        let len = len.sqrt();
-        [f[0] / len, f[1] / len, f[2] / len]
-    };
-
-    let s = [
-        up[1] * f[2] - up[2] * f[1],
-        up[2] * f[0] - up[0] * f[2],
-        up[0] * f[1] - up[1] * f[0],
-    ];
-
-    let s_norm = {
-        let len = s[0] * s[0] + s[1] * s[1] + s[2] * s[2];
-        let len = len.sqrt();
-        [s[0] / len, s[1] / len, s[2] / len]
-    };
-
-    let u = [
-        f[1] * s_norm[2] - f[2] * s_norm[1],
-        f[2] * s_norm[0] - f[0] * s_norm[2],
-        f[0] * s_norm[1] - f[1] * s_norm[0],
-    ];
-
-    let p = [
-        -position[0] * s_norm[0] - position[1] * s_norm[1] - position[2] * s_norm[2],
-        -position[0] * u[0] - position[1] * u[1] - position[2] * u[2],
-        -position[0] * f[0] - position[1] * f[1] - position[2] * f[2],
-    ];
-
-    [
-        [s_norm[0], u[0], f[0], 0.0],
-        [s_norm[1], u[1], f[1], 0.0],
-        [s_norm[2], u[2], f[2], 0.0],
-        [p[0], p[1], p[2], 1.0],
-    ]
 }
