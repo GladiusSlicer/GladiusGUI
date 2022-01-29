@@ -396,6 +396,7 @@ fn main() {
                                calc_vals = None;
                                gcode = None;
                                error = None;
+                               commands = None;
 
                                viewer_open = true;
 
