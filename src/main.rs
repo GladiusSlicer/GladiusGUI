@@ -10,8 +10,10 @@ use glium::{glutin, uniform};
 use itertools::Itertools;
 use native_dialog::FileDialog;
 use std::fs::File;
-use std::io::{ Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Command, Stdio};
+use env_logger::Target::Stderr;
+use gladius_shared::error::SlicerErrors;
 use winit::event::{DeviceEvent, ElementState, MouseScrollDelta, WindowEvent};
 use winit::window::Fullscreen;
 
@@ -21,6 +23,28 @@ fn vertex(pos: [f32; 3]) -> DisplayVertex {
     }
 }
 
+enum Errors{
+    SlicerCommunicationIssue,
+    SlicerApplicationIssue,
+    SlicerError(SlicerErrors)
+}
+
+impl Errors{
+    ///Return the error code and pretty error message
+    pub fn get_code_and_message(&self) -> (u32, String) {
+        match self {
+            Errors::SlicerApplicationIssue=> {
+                (0x8000,format!("Slicing Application could not be found."))
+            }
+            Errors::SlicerCommunicationIssue => {
+                (0x8001,format!("Error found in communication between GUI and slicer application."))
+            }
+            Errors::SlicerError(e) =>{
+                e.get_code_and_message()
+            }
+        }
+    }
+}
 /*
 fn create_mesh(
     display: &glium::Display,
@@ -289,7 +313,7 @@ fn main() {
                            match load(&model_path, &display)
                            {
                                Ok(objs) => {objects.extend(objs.into_iter());}
-                               Err(e) => {error = Some(e)}
+                               Err(e) => {error = Some(Errors::SlicerError(e))}
                            }
                        }
                    });
@@ -387,37 +411,50 @@ fn main() {
                                    //"{\"Raw\":[\"test_3D_models\\3DBenchy.stl\",[[1.0,0.0,0.0,124.0],[0.0,1.0,0.0,105.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]] }"
                                    command.arg(format!("{{\"Raw\":[\"{}\",{:?}]}} ", obj.file_path.replace('\\', "\\\\"), (glam::Mat4::from_translation(obj.location) * glam::Mat4::from_scale(obj.scale) *glam::Mat4::from_translation(obj.default_offset)).transpose().to_cols_array_2d()));
                                }
-                               let mut child = command
+                               if let Ok(mut child) = command
                                    .arg("-m")
                                    .arg("-s")
                                    .arg(format!("{}", settings_path.replace('\\', "\\\\")))
                                    .arg("-j")
                                    .arg(format!("{}", (num_cpus::get()).max(1)))
                                    .stdout(Stdio::piped())
+                                   .stderr(Stdio::piped())
                                    .spawn()
-                                   .expect("failed to execute child");
+                               {
 
 
-                               // Loop over the output from the first process
-                               if let Some(ref mut stdout) = child.stdout {
-                                   for msg in serde_json::Deserializer::from_reader(stdout).into_iter::<Message>() {
-                                       match msg.unwrap() {
-                                           Message::CalculatedValues(cv) => {
-                                               calc_vals = Some(cv);
-                                           }
-                                           Message::Commands(cmds) => {
-                                               index = 0;
-                                               layers = 0;
-                                               commands = Some(cmds);
-                                           }
-                                           Message::GCode(str) => {
-                                               gcode = Some(str);
-                                           }
-                                           Message::Error(err) => {
-                                               error = Some(err);
+                                   // Loop over the output from the first process
+                                   if let Some(ref mut stdout) = child.stdout {
+                                       for msg in serde_json::Deserializer::from_reader(stdout).into_iter::<Message>() {
+                                           match msg.unwrap() {
+                                               Message::CalculatedValues(cv) => {
+                                                   calc_vals = Some(cv);
+                                               }
+                                               Message::Commands(cmds) => {
+                                                   index = 0;
+                                                   layers = 0;
+                                                   commands = Some(cmds);
+                                               }
+                                               Message::GCode(str) => {
+                                                   gcode = Some(str);
+                                               }
+                                               Message::Error(err) => {
+                                                   error = Some(Errors::SlicerError(err));
+                                               }
                                            }
                                        }
                                    }
+
+                                   if let Some(ref mut stderr) = child.stderr {
+                                       let mut buff = BufReader::new(stderr);
+                                       if buff.lines().next().is_some() {
+                                           error = Some(Errors::SlicerCommunicationIssue);
+                                       }
+                                   }
+                               }
+                               else{
+                                   error = Some(Errors::SlicerApplicationIssue);
+
                                }
                            }
                        });
@@ -668,7 +705,7 @@ fn main() {
                     DeviceEvent::MouseMotion {delta: (dx,dy)} =>{
                         if let Some(_rect ) = rect {
                             if left_mouse_button_state == ElementState::Pressed && on_render_screen && in_window{
-                                camera_yaw += dx as f32 * 0.01;
+                                camera_yaw += dx as f32 * -0.01;
                                 camera_pitch = (camera_pitch + dy as f32 * 0.01).min(std::f32::consts::FRAC_PI_2 - 0.001).max(-std::f32::consts::FRAC_PI_2 + 0.001);
                             }
                         }
