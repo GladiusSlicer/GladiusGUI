@@ -418,8 +418,8 @@ fn main() {
 
                                        // Loop over the output from the first process
                                        if let Some(ref mut stdout) = child.stdout {
-                                           for msg in serde_json::Deserializer::from_reader(stdout).into_iter::<Message>() {
-                                               match msg.unwrap() {
+                                           while let Ok::<Message,_>( msg) = bincode::deserialize_from(&mut *stdout) {
+                                               match msg {
                                                    Message::CalculatedValues(cv) => {
                                                        *calc_vals_clone.write().unwrap() = Some(cv);
                                                    }
