@@ -1,9 +1,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 mod object;
+mod shaders;
 
 use crate::object::{load, DisplayVertex};
+use crate::shaders::*;
 use egui::plot::{Corner, Legend, Line, Plot, Value, Values};
-use egui::{vec2, FontDefinitions, FontFamily, Pos2, TextStyle, Vec2, Stroke, Color32, InnerResponse, Sense};
+use egui::{
+    vec2, Color32, FontDefinitions, FontFamily, InnerResponse, Pos2, Sense, Stroke, TextStyle, Vec2,
+};
+use env_logger::Target::Stderr;
+use gladius_shared::error::SlicerErrors;
 use gladius_shared::messages::Message;
 use glam::Vec3;
 use glium::{glutin, uniform};
@@ -12,8 +18,7 @@ use native_dialog::FileDialog;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Command, Stdio};
-use env_logger::Target::Stderr;
-use gladius_shared::error::SlicerErrors;
+use std::sync::{Arc, RwLock};
 use winit::event::{DeviceEvent, ElementState, MouseScrollDelta, WindowEvent};
 use winit::window::Fullscreen;
 
@@ -23,25 +28,24 @@ fn vertex(pos: [f32; 3]) -> DisplayVertex {
     }
 }
 
-enum Errors{
+enum Errors {
     SlicerCommunicationIssue,
     SlicerApplicationIssue,
-    SlicerError(SlicerErrors)
+    SlicerError(SlicerErrors),
 }
 
-impl Errors{
+impl Errors {
     ///Return the error code and pretty error message
     pub fn get_code_and_message(&self) -> (u32, String) {
         match self {
-            Errors::SlicerApplicationIssue=> {
-                (0x8000,format!("Slicing Application could not be found."))
+            Errors::SlicerApplicationIssue => {
+                (0x8000, format!("Slicing Application could not be found."))
             }
-            Errors::SlicerCommunicationIssue => {
-                (0x8001,format!("Error found in communication between GUI and slicer application."))
-            }
-            Errors::SlicerError(e) =>{
-                e.get_code_and_message()
-            }
+            Errors::SlicerCommunicationIssue => (
+                0x8001,
+                format!("Error found in communication between GUI and slicer application."),
+            ),
+            Errors::SlicerError(e) => e.get_code_and_message(),
         }
     }
 }
@@ -189,65 +193,6 @@ fn main() {
 
     let mut egui_glium = egui_glium::EguiGlium::new(&display);
 
-    let vertex_shader_src = r#"
-        #version 150
-        in vec3 position;
-        out vec3 viewPosition;
-        out vec3 v_position;
-        uniform mat4 perspective;
-        uniform mat4 view;
-        uniform mat4 model;
-        void main() {
-            mat4 modelview = view * model;
-            viewPosition = (view * vec4(position, 1.0)).xyz;
-            gl_Position = perspective * modelview * vec4(position, 1.0);
-
-            v_position = gl_Position.xyz / gl_Position.w;
-        }
-    "#;
-    let fragment_shader_src = r#"
-        #version 140
-        in vec3 viewPosition;
-        in vec3 v_position;
-        out vec4 color;
-        void main() {
-            vec3 xTangent = dFdx( viewPosition );
-            vec3 yTangent = dFdy( viewPosition );
-            vec3 faceNormal = normalize( cross( xTangent, yTangent ));
-
-            const vec3 ambient_color = vec3(0.0, 0.0, 0.0);
-            const vec3 diffuse_color = vec3(1.0, 1.0, 0.0);
-            const vec3 specular_color = vec3(1.0, 1.0, 1.0);
-
-            float diffuse = max(dot(normalize(faceNormal), normalize(vec3(0., 0.0, 0.1))), 0.0);
-            vec3 camera_dir = normalize(-v_position);
-            vec3 half_direction = normalize(camera_dir);
-            float specular = pow(max(dot(half_direction, -normalize(faceNormal)), 0.0), 128.0);
-            color = vec4(ambient_color + diffuse * diffuse_color + specular * specular_color, 1.0);
-
-
-        }
-    "#;
-    let line_vertex_shader_src = r#"
-        #version 150
-        in vec3 position;
-        uniform mat4 perspective;
-        uniform mat4 view;
-        uniform mat4 model;
-        void main() {
-            mat4 modelview = view * model;
-            gl_Position = perspective * modelview * vec4(position, 1.0);
-        }
-    "#;
-    let line_fragment_shader_src = r#"
-        #version 140
-        out vec4 color;
-        void main() {
-
-            color = vec4( vec3(0.0, 0.0, 1.0), 1.0);
-
-        }
-    "#;
     let mut camera_pitch = std::f32::consts::FRAC_PI_4;
     let mut camera_yaw = -std::f32::consts::FRAC_PI_4 + 0.12;
     let mut zoom = 400.0;
@@ -255,10 +200,12 @@ fn main() {
     let mut left_mouse_button_state = ElementState::Released;
     let mut on_render_screen = false;
     let mut in_window = false;
-    let mut calc_vals = None;
-    let mut gcode = None;
-    let mut commands = None;
-    let mut error = None;
+    let mut calc_vals = Arc::new(RwLock::new(None));
+    let mut gcode = Arc::new(RwLock::new(None));
+    let mut commands = Arc::new(RwLock::new(None));
+    let mut error = Arc::new(RwLock::new(None));
+    let mut command_running = Arc::new(RwLock::new(false));
+    let mut command_state = Arc::new(RwLock::new(String::new()));
     let mut index = 0;
     let mut layers = 0;
 
@@ -318,7 +265,7 @@ fn main() {
                            match load(&model_path, &display)
                            {
                                Ok(objs) => {objects.extend(objs.into_iter());}
-                               Err(e) => {error = Some(Errors::SlicerError(e))}
+                               Err(e) => {*error.write().unwrap() = Some(Errors::SlicerError(e))}
                            }
                        }
                    });
@@ -412,82 +359,106 @@ fn main() {
                            //ui.ctx().set_fonts(fonts);
 
 
-                           if ui.button("Slice").clicked() {
+                           if ui.add_enabled(!*command_running.read().unwrap() && !settings_path.is_empty() && !objects.is_empty(), egui::Button::new("Slice")).clicked() {
+                               *calc_vals.write().unwrap() = None;
+                               *gcode.write().unwrap() = None;
+                               *error.write().unwrap() = None;
+                               *commands.write().unwrap() = None;
+                               *command_running.write().unwrap() = true;
 
-                               calc_vals = None;
-                               gcode = None;
-                               error = None;
-                               commands = None;
+                               index = 0;
+                               layers = 0;
 
                                viewer_open = true;
+                               let args :Vec<_>= objects.iter()
+                                   .map(|obj|{
+                                       format!("{{\"Raw\":[\"{}\",{:?}]}} ", obj.file_path.replace('\\', "\\\\"), (glam::Mat4::from_translation(obj.location) * glam::Mat4::from_scale(obj.scale) *glam::Mat4::from_translation(obj.default_offset)).transpose().to_cols_array_2d())
+                                   })
+                                   .collect();
 
-                               let mut command = if cfg!(target_os = "linux") {
-                                   Command::new("./slicer/gladius_slicer")
-                               } else if cfg!(target_os = "windows") {
-                                   Command::new("slicer\\gladius_slicer.exe")
-                               } else {
-                                   unimplemented!()
-                               };
-
-                               for obj in &objects {
-                                   //"{\"Raw\":[\"test_3D_models\\3DBenchy.stl\",[[1.0,0.0,0.0,124.0],[0.0,1.0,0.0,105.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]] }"
-                                   command.arg(format!("{{\"Raw\":[\"{}\",{:?}]}} ", obj.file_path.replace('\\', "\\\\"), (glam::Mat4::from_translation(obj.location) * glam::Mat4::from_scale(obj.scale) *glam::Mat4::from_translation(obj.default_offset)).transpose().to_cols_array_2d()));
-                               }
-
-                               let cpus = format!("{}", (num_cpus::get()).max(1));
-
-                               println!("{}",cpus);
-
-                               if let Ok(mut child) = command
-                                   .arg("-m")
-                                   .arg("-s")
-                                   .arg(format!("{}", settings_path.replace('\\', "\\\\")))
-                                   .arg("-j")
-                                   .arg(cpus)
-                                   .stdout(Stdio::piped())
-                                   .stderr(Stdio::piped())
-                                   .spawn()
-                               {
+                               let calc_vals_clone = calc_vals.clone();
+                               let commands_clone = commands.clone();
+                               let gcode_clone = gcode.clone();
+                               let error_clone = error.clone();
+                               let command_running_clone = command_running.clone();
+                               let command_state_clone = command_state.clone();
+                               let settings_path_clone = settings_path.clone();
 
 
-                                   // Loop over the output from the first process
-                                   if let Some(ref mut stdout) = child.stdout {
-                                       for msg in serde_json::Deserializer::from_reader(stdout).into_iter::<Message>() {
-                                           match msg.unwrap() {
-                                               Message::CalculatedValues(cv) => {
-                                                   calc_vals = Some(cv);
-                                               }
-                                               Message::Commands(cmds) => {
-                                                   index = 0;
-                                                   layers = 0;
-                                                   commands = Some(cmds);
-                                               }
-                                               Message::GCode(str) => {
-                                                   gcode = Some(str);
-                                               }
-                                               Message::Error(err) => {
-                                                   error = Some(Errors::SlicerError(err));
+                               std::thread::spawn(move ||{
+
+                                   let mut command = if cfg!(target_os = "linux") {
+                                       Command::new("./slicer/gladius_slicer")
+                                   } else if cfg!(target_os = "windows") {
+                                       Command::new("slicer\\gladius_slicer.exe")
+                                   } else {
+                                       unimplemented!()
+                                   };
+
+                                   for arg in &args {
+                                       //"{\"Raw\":[\"test_3D_models\\3DBenchy.stl\",[[1.0,0.0,0.0,124.0],[0.0,1.0,0.0,105.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]] }"
+                                       command.arg(arg);
+                                   }
+
+                                   let cpus = format!("{}", (num_cpus::get()).max(1));
+
+                                   println!("{}",cpus);
+
+                                   if let Ok(mut child) = command
+                                       .arg("-m")
+                                       .arg("-s")
+                                       .arg(format!("{}", settings_path_clone.replace('\\', "\\\\")))
+                                       .arg("-j")
+                                       .arg(cpus)
+                                       .stdout(Stdio::piped())
+                                       .stderr(Stdio::piped())
+                                       .spawn()
+                                   {
+
+
+                                       // Loop over the output from the first process
+                                       if let Some(ref mut stdout) = child.stdout {
+                                           for msg in serde_json::Deserializer::from_reader(stdout).into_iter::<Message>() {
+                                               match msg.unwrap() {
+                                                   Message::CalculatedValues(cv) => {
+                                                       *calc_vals_clone.write().unwrap() = Some(cv);
+                                                   }
+                                                   Message::Commands(cmds) => {
+
+                                                       *commands_clone.write().unwrap() = Some(cmds);
+                                                   }
+                                                   Message::GCode(str) => {
+                                                       *gcode_clone.write().unwrap() = Some(str);
+                                                   }
+                                                   Message::Error(err) => {
+                                                       *error_clone.write().unwrap() = Some(Errors::SlicerError(err));
+                                                   }
+                                                   Message::StateUpdate(msg) =>{
+                                                       *command_state_clone.write().unwrap() = msg;
+                                                   }
                                                }
                                            }
                                        }
-                                   }
 
-                                   if let Some(ref mut stderr) = child.stderr {
-                                       let mut buff = BufReader::new(stderr);
-                                       if buff.lines().next().is_some() {
-                                           error = Some(Errors::SlicerCommunicationIssue);
+                                       if let Some(ref mut stderr) = child.stderr {
+                                           let mut buff = BufReader::new(stderr);
+                                           if buff.lines().next().is_some() {
+                                               *error_clone.write().unwrap() = Some(Errors::SlicerCommunicationIssue);
+                                           }
                                        }
                                    }
-                               }
-                               else{
-                                   error = Some(Errors::SlicerApplicationIssue);
+                                   else{
+                                       *error_clone.write().unwrap() = Some(Errors::SlicerApplicationIssue);
 
-                               }
+                                   }
+
+                                   *command_running_clone.write().unwrap() = false;
+                               });
                            }
                        });
                    });
 
-                   if let Some(cv) = calc_vals.as_ref() {
+                   if let Some(cv) = calc_vals.clone().read().unwrap().as_ref() {
                        ui.horizontal(|ui| {
                            ui.label(format!("This print will use {:.0} cm^3 of plastic",cv.plastic_volume));
                        });
@@ -500,7 +471,7 @@ fn main() {
                        });
                    };
 
-                   if let Some(err) = error.as_ref() {
+                   if let Some(err) = error.read().unwrap().as_ref() {
 
                        let (code, message) = err.get_code_and_message();
                        ui.horizontal(|ui| {
@@ -511,7 +482,16 @@ fn main() {
                        });
                    };
 
-                   if let Some(str) = gcode.as_ref() {
+                   if *command_running.read().unwrap() {
+                       ui.horizontal(|ui| {
+                           ui.heading("Running");
+                       });
+                       ui.horizontal(|ui| {
+                           ui.label(format!("Status {}",*command_state.read().unwrap()));
+                       });
+                   }
+
+                   if let Some(str) = gcode.read().unwrap().as_ref() {
                        ui.horizontal(|ui| {
                            ui.style_mut().spacing.button_padding = Vec2::new(50., 20.);
                            ui.style_mut().body_text_style = TextStyle::Heading;
@@ -536,7 +516,7 @@ fn main() {
                            });
                        });
                    }
-                   if let Some(cmds) = commands.as_ref() {
+                   if let Some(cmds) = commands.read().unwrap().as_ref() {
                         plot_window_resp = egui::Window::new("2DViewer")
                             .open(&mut viewer_open)
                             .default_size(vec2(400.0, 400.0))
@@ -630,8 +610,6 @@ fn main() {
                         resp.response
                     }
                 };
-
-                
                  //println!("here {} {} {}",full_resp.hovered(),full_resp.dragged(),full_resp.is_pointer_button_down_on());
 
                 on_render_screen = !full_resp.hovered() && !full_resp.dragged() && !full_resp.is_pointer_button_down_on();
@@ -719,7 +697,7 @@ fn main() {
                     }
                     WindowEvent::CursorMoved {position, ..} => {
                         on_render_screen = on_render_screen &&  if let Some(rect ) = window_rec {
-                            println!("{:?} {:?}",rect,position);
+                            //println!("{:?} {:?}",rect,position);
                             !rect.contains(Pos2{x: position.x as f32,y: position.y as f32 })
                         }
                         else{

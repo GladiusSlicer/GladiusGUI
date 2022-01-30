@@ -1,10 +1,10 @@
 use crate::vertex;
+use gladius_shared::error::SlicerErrors;
 use gladius_shared::loader::*;
 use glam::Vec3;
 use glium::implement_vertex;
 use std::ffi::OsStr;
 use std::path::Path;
-use gladius_shared::error::SlicerErrors;
 
 #[derive(Copy, Clone, Debug)]
 pub struct DisplayVertex {
@@ -47,7 +47,7 @@ impl Object {
     }
 }
 
-pub fn load(filepath: &str, display: &glium::Display) -> Result<Vec<Object>,SlicerErrors> {
+pub fn load(filepath: &str, display: &glium::Display) -> Result<Vec<Object>, SlicerErrors> {
     let model_path = Path::new(filepath);
     let extension = model_path
         .extension()
@@ -60,32 +60,30 @@ pub fn load(filepath: &str, display: &glium::Display) -> Result<Vec<Object>,Slic
         _ => panic!("File Format {} not supported", extension),
     };
 
+    Ok(loader
+        .load(model_path.to_str().unwrap())?
+        .into_iter()
+        .map(|(vertices, triangles)| {
+            let display_vertices: Vec<DisplayVertex> = vertices
+                .into_iter()
+                .map(|v| vertex([v.x as f32, v.y as f32, v.z as f32]))
+                .collect();
 
-    Ok(loader.load(model_path.to_str().unwrap())?
-    .into_iter()
-    .map(|(vertices, triangles)| {
-        let display_vertices: Vec<DisplayVertex> = vertices
-            .into_iter()
-            .map(|v| vertex([v.x as f32, v.y as f32, v.z as f32]))
-            .collect();
+            let indices: Vec<u32> = triangles
+                .into_iter()
+                .flat_map(|tri| tri.verts.into_iter())
+                .map(|u| u as u32)
+                .collect();
 
-        let indices: Vec<u32> = triangles
-            .into_iter()
-            .flat_map(|tri| tri.verts.into_iter())
-            .map(|u| u as u32)
-            .collect();
+            let positions = glium::VertexBuffer::new(display, &display_vertices).unwrap();
+            let indices = glium::IndexBuffer::new(
+                display,
+                glium::index::PrimitiveType::TrianglesList,
+                &indices,
+            )
+            .unwrap();
 
-        let positions = glium::VertexBuffer::new(display, &display_vertices).unwrap();
-        let indices = glium::IndexBuffer::new(
-            display,
-            glium::index::PrimitiveType::TrianglesList,
-            &indices,
-        )
-        .unwrap();
-
-
-        let (min_x, max_x, min_y, max_y, min_z) =
-            display_vertices.iter().fold(
+            let (min_x, max_x, min_y, max_y, min_z) = display_vertices.iter().fold(
                 (
                     f32::INFINITY,
                     f32::NEG_INFINITY,
@@ -104,20 +102,17 @@ pub fn load(filepath: &str, display: &glium::Display) -> Result<Vec<Object>,Slic
                 },
             );
 
-
-
-
-        let model_path = Path::new(filepath).file_name().unwrap();
-        Object {
-            name: model_path.to_string_lossy().to_string(),
-            file_path: filepath.to_string(),
-            location: Vec3::new(0.0, 0.0, 0.0),
-            scale: Vec3::new(1.0, 1.0, 1.0),
-            default_offset: Vec3::new(-(max_x + min_x)/2.0, -(max_y + min_y)/2.0, -min_z),
-            color: Vec3::new(1.0, 0.0, 0.0),
-            index_buff: indices,
-            vert_buff: positions,
-        }
-    })
-    .collect())
+            let model_path = Path::new(filepath).file_name().unwrap();
+            Object {
+                name: model_path.to_string_lossy().to_string(),
+                file_path: filepath.to_string(),
+                location: Vec3::new(0.0, 0.0, 0.0),
+                scale: Vec3::new(1.0, 1.0, 1.0),
+                default_offset: Vec3::new(-(max_x + min_x) / 2.0, -(max_y + min_y) / 2.0, -min_z),
+                color: Vec3::new(1.0, 0.0, 0.0),
+                index_buff: indices,
+                vert_buff: positions,
+            }
+        })
+        .collect())
 }
