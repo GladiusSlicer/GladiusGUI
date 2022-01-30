@@ -105,13 +105,15 @@ pub fn load(filepath: &str, display: &glium::Display) -> Result<Vec<Object>,Slic
             );
 
 
+
+
         let model_path = Path::new(filepath).file_name().unwrap();
         Object {
             name: model_path.to_string_lossy().to_string(),
             file_path: filepath.to_string(),
             location: Vec3::new(0.0, 0.0, 0.0),
             scale: Vec3::new(1.0, 1.0, 1.0),
-            default_offset: Vec3::new((max_x + min_x)/2.0, (max_y + min_y)/2.0, -min_z),
+            default_offset: Vec3::new(-(max_x + min_x)/2.0, -(max_y + min_y)/2.0, -min_z),
             color: Vec3::new(1.0, 0.0, 0.0),
             index_buff: indices,
             vert_buff: positions,

@@ -3,7 +3,7 @@ mod object;
 
 use crate::object::{load, DisplayVertex};
 use egui::plot::{Corner, Legend, Line, Plot, Value, Values};
-use egui::{vec2, FontDefinitions, FontFamily, Pos2, TextStyle, Vec2, Stroke, Color32};
+use egui::{vec2, FontDefinitions, FontFamily, Pos2, TextStyle, Vec2, Stroke, Color32, InnerResponse, Sense};
 use gladius_shared::messages::Message;
 use glam::Vec3;
 use glium::{glutin, uniform};
@@ -284,7 +284,9 @@ fn main() {
 
     let mut objects = vec![];
 
-    let mut rect = None;
+    let mut plot_window_resp = None;
+    let mut window_rec = None;
+    let mut window_clicked = false;
 
     let (line_positions, line_indices) = create_build_area(&display, build_x, build_y, build_z);
     event_loop.run(move |event, _, control_flow| {
@@ -293,7 +295,10 @@ fn main() {
 
 
             let (needs_repaint, shapes) = egui_glium.run(&display, |egui_ctx| {
-               rect = Some(egui::SidePanel::left("my_side_panel").show(egui_ctx, |ui| {
+
+                plot_window_resp = None;
+                window_clicked = false;
+               let resp = egui::SidePanel::left("my_side_panel").show(egui_ctx, |ui| {
                    ui.heading("Print Setup");
                    ui.horizontal(|ui| {
                        ui.label("Model path: ");
@@ -319,7 +324,14 @@ fn main() {
                    });
                    ui.horizontal(|ui| {
                        ui.label("Settings path: ");
-                       ui.text_edit_singleline(&mut settings_path);
+                       let mut short = settings_path.clone();
+                       if short.len() > 13{
+                           short.truncate(10);
+                           short += "...";
+                       }
+                       ui.label(short);
+                   });
+                   ui.horizontal(|ui| {
                        if ui.button("Choose settings").clicked() {
                            let path = FileDialog::new()
                                .add_filter("Supported settings Types", &["json"])
@@ -340,6 +352,8 @@ fn main() {
                            let mut duplicate = false;
                            ui.horizontal(|ui| {
                                ui.label(obj.name.to_string());
+                           });
+                           ui.horizontal(|ui| {
                                ui.add(egui::DragValue::new(&mut obj.location.x)
                                    .speed(1.0)
                                    .clamp_range(f64::NEG_INFINITY..=f64::INFINITY)
@@ -355,8 +369,15 @@ fn main() {
 
                                obj.scale.y = obj.scale.x;
                                obj.scale.z = obj.scale.x;
+                           });
+
+                           ui.horizontal(|ui| {
                                remove = ui.button("Remove").clicked();
-                               duplicate = ui.button("Duplicate").clicked();
+                               duplicate = ui.button("Copy").clicked();
+                               if ui.button("Center").clicked(){
+                                   obj.location.x = build_x /2.0;
+                                   obj.location.y = build_y /2.0;
+                               }
                            });
 
                            if !remove {
@@ -412,12 +433,17 @@ fn main() {
                                    //"{\"Raw\":[\"test_3D_models\\3DBenchy.stl\",[[1.0,0.0,0.0,124.0],[0.0,1.0,0.0,105.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]] }"
                                    command.arg(format!("{{\"Raw\":[\"{}\",{:?}]}} ", obj.file_path.replace('\\', "\\\\"), (glam::Mat4::from_translation(obj.location) * glam::Mat4::from_scale(obj.scale) *glam::Mat4::from_translation(obj.default_offset)).transpose().to_cols_array_2d()));
                                }
+
+                               let cpus = format!("{}", (num_cpus::get()).max(1));
+
+                               println!("{}",cpus);
+
                                if let Ok(mut child) = command
                                    .arg("-m")
                                    .arg("-s")
                                    .arg(format!("{}", settings_path.replace('\\', "\\\\")))
                                    .arg("-j")
-                                   .arg(format!("{}", (num_cpus::get()).max(1)))
+                                   .arg(cpus)
                                    .stdout(Stdio::piped())
                                    .stderr(Stdio::piped())
                                    .spawn()
@@ -511,7 +537,7 @@ fn main() {
                        });
                    }
                    if let Some(cmds) = commands.as_ref() {
-                        egui::Window::new("2DViewer")
+                        plot_window_resp = egui::Window::new("2DViewer")
                             .open(&mut viewer_open)
                             .default_size(vec2(400.0, 400.0))
                             .show(egui_ctx, |ui| {
@@ -523,7 +549,7 @@ fn main() {
                                 let mut layer_height = 0.0;
 
 
-                                ui.add(egui::DragValue::new(&mut index)
+                                let drag_resp = ui.add(egui::DragValue::new(&mut index)
                                        .speed(1)
                                        .clamp_range(0..=layers-1)
                                        .prefix("x: "));
@@ -536,7 +562,7 @@ fn main() {
                                     .data_aspect(1.0);
 
 
-                                plot.show(ui, |plot_ui| {
+                                let resp = plot.show(ui, |plot_ui| {
                                     plot_ui.line(line.name("Border"));
 
                                     let p1 = plot_ui.screen_from_plot(Value{x:0.0,y:0.0});
@@ -585,13 +611,30 @@ fn main() {
                                     }
                                 });
 
+                                drag_resp.union(resp.response)
                             });
                    }
 
 
 
-                }).response.rect);
+                });
 
+                window_rec = plot_window_resp.as_ref().map(|r| r.response.rect.clone());
+
+                let full_resp = match plot_window_resp.take(){
+                    Some(mut window_resp) => {
+
+                        resp.response.union(window_resp.response.interact(Sense::click_and_drag()).union(window_resp.inner.take().unwrap()))
+                    },
+                    None => {
+                        resp.response
+                    }
+                };
+
+                
+                 //println!("here {} {} {}",full_resp.hovered(),full_resp.dragged(),full_resp.is_pointer_button_down_on());
+
+                on_render_screen = !full_resp.hovered() && !full_resp.dragged() && !full_resp.is_pointer_button_down_on();
             });
 
 
@@ -675,12 +718,14 @@ fn main() {
                         *control_flow = glutin::event_loop::ControlFlow::Exit;
                     }
                     WindowEvent::CursorMoved {position, ..} => {
-                        on_render_screen = if let Some(rect ) = rect {
+                        on_render_screen = on_render_screen &&  if let Some(rect ) = window_rec {
+                            println!("{:?} {:?}",rect,position);
                             !rect.contains(Pos2{x: position.x as f32,y: position.y as f32 })
                         }
                         else{
-                            false
+                            true
                         };
+
                         in_window = true;
                     }
                     WindowEvent::CursorLeft {..} =>{
@@ -704,12 +749,11 @@ fn main() {
                     }
 
                     DeviceEvent::MouseMotion {delta: (dx,dy)} =>{
-                        if let Some(_rect ) = rect {
-                            if left_mouse_button_state == ElementState::Pressed && on_render_screen && in_window{
-                                camera_yaw += dx as f32 * -0.01;
-                                camera_pitch = (camera_pitch + dy as f32 * 0.01).min(std::f32::consts::FRAC_PI_2 - 0.001).max(-std::f32::consts::FRAC_PI_2 + 0.001);
-                            }
+                        if left_mouse_button_state == ElementState::Pressed && on_render_screen && in_window{
+                            camera_yaw += dx as f32 * -0.01;
+                            camera_pitch = (camera_pitch + dy as f32 * 0.01).min(std::f32::consts::FRAC_PI_2 - 0.001).max(-std::f32::consts::FRAC_PI_2 + 0.001);
                         }
+
                     }
                     DeviceEvent::MouseWheel {delta} =>{
                         if  on_render_screen && in_window {
