@@ -1,6 +1,6 @@
 # GladiusGUI
 A Graphical Interface for the Gladius Slicer. The Core Engine can be found [here](https://github.com/GladiusSlicer/GladiusSlicer).
-    ![Screenshot](assets\Screenshot.png)
+    ![Screenshot](/assets/Screenshot.png)
 
 Rust, LGPL. Copyright 2022 Lucas Ince/mrhatman
 
