@@ -11,7 +11,7 @@ use egui::{
 use env_logger::Target::Stderr;
 use gladius_shared::error::SlicerErrors;
 use gladius_shared::messages::Message;
-use glam::Vec3;
+use glam::{Vec3, Vec4};
 use glium::{glutin, uniform};
 use itertools::Itertools;
 use native_dialog::FileDialog;
@@ -209,6 +209,10 @@ fn main() {
     let mut index = 0;
     let mut layers = 0;
 
+    let mut cam_view = None;
+    let mut cam_proj = None;
+    let mut dimensions = None;
+
     let mut viewer_open = false;
 
     let build_x = 250.0;
@@ -250,22 +254,20 @@ fn main() {
                    ui.horizontal(|ui| {
                        ui.label("Model path: ");
                        if ui.button("Choose Model").clicked() {
-                           let path = FileDialog::new()
+                           let paths = FileDialog::new()
                                .add_filter("Supported Model Types", &["stl", "3mf"])
-                               .show_open_single_file()
+                               .show_open_multiple_file()
                                .unwrap();
 
-                           let path = match path {
-                               Some(path) => path,
-                               None => return,
-                           };
+                           for path in paths {
 
-                           model_path = path.into_os_string().into_string().unwrap();
+                               model_path = path.into_os_string().into_string().unwrap();
 
-                           match load(&model_path, &display)
-                           {
-                               Ok(objs) => {objects.extend(objs.into_iter());}
-                               Err(e) => {*error.write().unwrap() = Some(Errors::SlicerError(e))}
+                               match load(&model_path, &display)
+                               {
+                                   Ok(objs) => { objects.extend(objs.into_iter()); }
+                                   Err(e) => { *error.write().unwrap() = Some(Errors::SlicerError(e)) }
+                               }
                            }
                        }
                    });
@@ -398,7 +400,10 @@ fn main() {
                                    for arg in &args {
                                        //"{\"Raw\":[\"test_3D_models\\3DBenchy.stl\",[[1.0,0.0,0.0,124.0],[0.0,1.0,0.0,105.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]] }"
                                        command.arg(arg);
+                                       print!("{}",arg.replace('\\', "\\\\").replace('\"', "\\\""));
                                    }
+
+                                   println!("");
 
                                    let cpus = format!("{}", (num_cpus::get()).max(1));
 
@@ -435,6 +440,8 @@ fn main() {
                                                    }
                                                    Message::StateUpdate(msg) =>{
                                                        *command_state_clone.write().unwrap() = msg;
+                                                   }
+                                                   Message::Warning(_warn) =>{
                                                    }
                                                }
                                            }
@@ -555,7 +562,7 @@ fn main() {
                                     let mut moves : Vec<_>= (&cmds
                                         .iter()
                                         .group_by(|cmd|{
-                                            if let gladius_shared::types::Command::LayerChange { z } = cmd{
+                                            if let gladius_shared::types::Command::LayerChange { z, index: _index } = cmd{
                                                 let r = *z == layer_height;
                                                 layer_height = *z;
                                                 r
@@ -645,11 +652,17 @@ fn main() {
                 let view = glam::Mat4::look_at_rh(camera_location,glam::Vec3::new( center_pos.0 ,center_pos.1,0.0),glam::Vec3::new(0.0,0.0,1.0));
 
                 let (width, height) = target.get_dimensions();
+
+                dimensions = Some( (width, height));
                 let aspect_ratio = width as f32 / height as f32;
 
+                cam_proj = Some(glam::Mat4::perspective_infinite_rh(60.0_f32.to_radians(),aspect_ratio,0.1));
+                cam_view = Some(view);
                 let perspective = glam::Mat4::perspective_infinite_rh(60.0_f32.to_radians(),aspect_ratio,0.1).to_cols_array_2d();
 
                 let view :[[f32;4];4] = view.to_cols_array_2d();
+
+
 
 
                 let line_model = glam::Mat4::from_translation(Vec3::new(0.0,0.0,0.0)).to_cols_array_2d();
@@ -665,9 +678,10 @@ fn main() {
                 };
 
                 for obj in &objects{
-                    let model = (glam::Mat4::from_translation(obj.location) * glam::Mat4::from_scale(obj.scale) *glam::Mat4::from_translation(obj.default_offset)).to_cols_array_2d();
+                    let model = obj.get_model_matrix().to_cols_array_2d();
+                    let color = obj.color.to_array();
                     let (positions, indices) = (&obj.vert_buff,&obj.index_buff);//create_mesh(&display);
-                    target.draw(positions, indices, &model_program, &uniform! { model: model, view: view, perspective: perspective }, &params).unwrap();
+                    target.draw(positions, indices, &model_program, &uniform! {color: color,  model: model, view: view, perspective: perspective }, &params).unwrap();
                 }
 
 
@@ -703,6 +717,37 @@ fn main() {
                         else{
                             true
                         };
+
+                        if let Some(proj) = cam_proj{
+                            if let Some(view) = cam_view {
+                                if let Some((width, height)) = dimensions {
+                                    let inv_VP = (proj * view).inverse();
+                                    let camera_vec = glam::Vec3::new(zoom * camera_yaw.cos() * camera_pitch.cos(), zoom * camera_yaw.sin() * camera_pitch.cos(), zoom * camera_pitch.sin());
+
+                                    let cam_origin = camera_vec + glam::Vec3::new(center_pos.0, center_pos.1, 0.0);
+
+                                    let mouse_pos = Vec3::new((position.x / (width as f64 * 0.5) - 1.0 ) as f32,-(position.y / (height as f64 * 0.5) - 1.0 ) as f32, 1.0);
+
+                                    let worldPos = inv_VP.transform_point3(mouse_pos);
+
+                                    let cam_dir = worldPos.normalize();
+
+
+
+                                    for obj in &mut objects {
+                                        if obj.intersect_with_ray(cam_origin, cam_dir).is_some(){
+                                            obj.color = Vec3::new(0.0,0.0,1.0);
+                                        }
+                                        else{
+                                            obj.color = Vec3::new(1.0,1.0,0.0);
+                                        }
+                                    }
+                                }
+
+                            }
+                        }
+
+
 
                         in_window = true;
                     }

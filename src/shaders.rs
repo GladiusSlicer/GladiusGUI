@@ -3,6 +3,8 @@ pub const vertex_shader_src: &str = r#"
     in vec3 position;
     out vec3 viewPosition;
     out vec3 v_position;
+    out vec3 v_color;
+    uniform vec3 color;
     uniform mat4 perspective;
     uniform mat4 view;
     uniform mat4 model;
@@ -10,15 +12,17 @@ pub const vertex_shader_src: &str = r#"
         mat4 modelview = view * model;
         viewPosition = (view * vec4(position, 1.0)).xyz;
         gl_Position = perspective * modelview * vec4(position, 1.0);
+        v_color = color;
 
         v_position = gl_Position.xyz / gl_Position.w;
     }
 "#;
 
 pub const fragment_shader_src: &str = r#"
-        #version 140
+        #version 150
         in vec3 viewPosition;
         in vec3 v_position;
+        in vec3 v_color;
         out vec4 color;
         void main() {
             vec3 xTangent = dFdx( viewPosition );
@@ -26,7 +30,7 @@ pub const fragment_shader_src: &str = r#"
             vec3 faceNormal = normalize( cross( xTangent, yTangent ));
 
             const vec3 ambient_color = vec3(0.0, 0.0, 0.0);
-            const vec3 diffuse_color = vec3(1.0, 1.0, 0.0);
+            vec3 diffuse_color = v_color;
             const vec3 specular_color = vec3(1.0, 1.0, 1.0);
 
             float diffuse = max(dot(normalize(faceNormal), normalize(vec3(0., 0.0, 0.1))), 0.0);

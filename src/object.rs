@@ -1,10 +1,11 @@
 use crate::vertex;
 use gladius_shared::error::SlicerErrors;
 use gladius_shared::loader::*;
-use glam::Vec3;
+use glam::{Mat4, Vec3, Vec4};
 use glium::implement_vertex;
 use std::ffi::OsStr;
 use std::path::Path;
+use itertools::*;
 
 #[derive(Copy, Clone, Debug)]
 pub struct DisplayVertex {
@@ -45,6 +46,105 @@ impl Object {
             index_buff: indices,
         }
     }
+
+    pub fn get_model_matrix(&self) -> Mat4 {
+        (glam::Mat4::from_translation(self.location) * glam::Mat4::from_scale(self.scale) *glam::Mat4::from_translation(self.default_offset))
+    }
+
+    pub fn intersect_with_ray(&self, ray_origin: Vec3, ray_dir: Vec3) -> Option<Vec3>{
+        let vertices = self.vert_buff.read().unwrap();
+
+        let mat = self.get_model_matrix();
+
+        self.index_buff.read()
+            .unwrap()
+            .iter()
+            .tuples::<(_,_,_)>()
+            .map(|(v0,v1,v2)|{
+                ///make points
+                (vertices[*v0 as usize],vertices[*v1 as usize],vertices[*v2 as usize] )
+            })
+            .map(|(v0,v1,v2)|{
+                (
+                    mat.transform_point3(Vec3::new(v0.position.0,v0.position.1,v0.position.2)),
+                    mat.transform_point3(Vec3::new(v1.position.0,v1.position.1,v1.position.2)),
+                    mat.transform_point3(Vec3::new(v2.position.0,v2.position.1,v2.position.2)),
+                    )
+            })
+            .filter_map(|(v0,v1,v2)|{
+                let edge1 = v1 - v0;
+                let edge2 = v2 - v0;
+
+                let h = ray_dir.cross(edge2);
+                let a = edge1.dot(h);
+
+                if a > -0.0000001 && a < 0.0000001{
+                    None
+                }
+                else{
+                    let f = 1.0/a;
+                    let s = ray_origin - v0;
+                    let u = f*s.dot(h);
+                    if u < 0.0 || u> 1.0{
+                        None
+                    }
+                    else{
+                        let q = s.cross(edge1);
+                        let v = f* ray_dir.dot(q);
+                        if v < 0.0 || u+v> 1.0{
+                            None
+                        }
+                        else {
+                            let t = f * edge2.dot(q);
+                            if t > 0.0000001// ray intersection
+                            {
+                                Some(t)
+                            }
+                            else // This means that there is a line intersection but not a ray intersection.
+                            {
+                                None
+                            }
+                        }
+                    }
+                }
+            })
+            .min_by(|a,b| a.partial_cmp(b).unwrap())
+            .map(|t| ray_origin + ray_dir*t)
+
+    }
+
+/*
+    const float EPSILON = 0.0000001;
+    Vector3D vertex0 = inTriangle->vertex0;
+    Vector3D vertex1 = inTriangle->vertex1;
+    Vector3D vertex2 = inTriangle->vertex2;
+    Vector3D edge1, edge2, h, s, q;
+    float a,f,u,v;
+    edge1 = vertex1 - vertex0;
+    edge2 = vertex2 - vertex0;
+    h = rayVector.crossProduct(edge2);
+    a = edge1.dotProduct(h);
+    if (a > -EPSILON && a < EPSILON)
+        return false;    // This ray is parallel to this triangle.
+    f = 1.0/a;
+    s = rayOrigin - vertex0;
+    u = f * s.dotProduct(h);
+    if (u < 0.0 || u > 1.0)
+        return false;
+    q = s.crossProduct(edge1);
+    v = f * rayVector.dotProduct(q);
+    if (v < 0.0 || u + v > 1.0)
+        return false;
+    // At this stage we can compute t to find out where the intersection point is on the line.
+    float t = f * edge2.dotProduct(q);
+    if (t > EPSILON) // ray intersection
+    {
+        outIntersectionPoint = rayOrigin + rayVector * t;
+        return true;
+    }
+    else // This means that there is a line intersection but not a ray intersection.
+        return false;
+}*/
 }
 
 pub fn load(filepath: &str, display: &glium::Display) -> Result<Vec<Object>, SlicerErrors> {
@@ -109,10 +209,11 @@ pub fn load(filepath: &str, display: &glium::Display) -> Result<Vec<Object>, Sli
                 location: Vec3::new(0.0, 0.0, 0.0),
                 scale: Vec3::new(1.0, 1.0, 1.0),
                 default_offset: Vec3::new(-(max_x + min_x) / 2.0, -(max_y + min_y) / 2.0, -min_z),
-                color: Vec3::new(1.0, 0.0, 0.0),
+                color: Vec3::new(1.0, 1.0, 0.0),
                 index_buff: indices,
                 vert_buff: positions,
             }
         })
         .collect())
 }
+
