@@ -6,10 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-egui = "0.16.1"
+egui = "0.17"
 
 # Backend-agnostic interface for writing apps using egui
-epi = "0.16.0"
+epi = "0.17.0"
 # Winit integration with egui
 egui_winit_platform = "0.13.0"
 # logging
@@ -22,7 +22,7 @@ winit = "0.26"
 
 native-dialog = "0.5.5"
 
-egui_glium = "0.16.0"
+egui_glium = "0.17.0"
 glium = "0.31.0"
 
 nom_stl = "0.2.2"

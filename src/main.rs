@@ -2,7 +2,7 @@
 mod object;
 mod shaders;
 
-use crate::object::{load, DisplayVertex};
+use crate::object::{load, DisplayVertex, Object};
 use crate::shaders::*;
 use egui::plot::{Corner, Legend, Line, Plot, Value, Values};
 use egui::{
@@ -213,6 +213,10 @@ fn main() {
     let mut cam_proj = None;
     let mut dimensions = None;
 
+
+    let mut closest_point = None;
+    let mut selected = false;
+
     let mut viewer_open = false;
 
     let build_x = 250.0;
@@ -233,7 +237,7 @@ fn main() {
     )
     .unwrap();
 
-    let mut objects = vec![];
+    let mut objects :Vec<Object> = vec![];
 
     let mut plot_window_resp = None;
     let mut window_rec = None;
@@ -245,11 +249,33 @@ fn main() {
             let mut quit = false;
 
 
-            let (needs_repaint, shapes) = egui_glium.run(&display, |egui_ctx| {
+            let needs_repaint = egui_glium.run(&display, |egui_ctx| {
+
+                objects
+                    .iter_mut()
+                    .enumerate()
+                    .for_each(|(index,obj)| {
+                        let in_build_area = obj.aabb.as_ref().map(|aabb| {
+                            !(aabb.min_x < 0.0 || aabb.min_y < 0.0 || aabb.min_z < 0.0 || aabb.max_x > build_x || aabb.max_y > build_y || aabb.max_z > build_z)
+                        }).unwrap_or(false);
+
+                        let this_selected =closest_point.map(|(i,_,_)| i== index && selected).unwrap_or(false);
+
+                         obj.color = match (obj.hovered,in_build_area,this_selected){
+                             (false,false,false) => Vec3::new(1.0, 0.0, 0.0),
+                             (false,true,false) => Vec3::new(1.0, 1.0, 0.0),
+                             (true,true,false) => Vec3::new(0.0, 0.0, 1.0),
+                             (true,false,false) => Vec3::new(1.0, 0.0, 0.0),
+                             (_,false,true) => Vec3::new(1.0, 0.0, 1.0),
+                             (_,true,true) => Vec3::new(0.0, 1.0, 1.0),
+                         };
+
+
+                    });
 
                 plot_window_resp = None;
                 window_clicked = false;
-               let resp = egui::SidePanel::left("my_side_panel").show(egui_ctx, |ui| {
+               let resp = egui::SidePanel::left("my_side_panel").show(&egui_ctx, |ui| {
                    ui.heading("Print Setup");
                    ui.horizontal(|ui| {
                        ui.label("Model path: ");
@@ -302,32 +328,44 @@ fn main() {
                            ui.horizontal(|ui| {
                                ui.label(obj.name.to_string());
                            });
+
+                           let mut changed = false;
+
                            ui.horizontal(|ui| {
-                               ui.add(egui::DragValue::new(&mut obj.location.x)
+                               changed |= ui.add(egui::DragValue::new(&mut obj.get_mut_location().x)
                                    .speed(1.0)
                                    .clamp_range(f64::NEG_INFINITY..=f64::INFINITY)
-                                   .prefix("x: "));
-                               ui.add(egui::DragValue::new(&mut obj.location.y)
+                                   .prefix("x: "))
+                                   .changed();
+                               changed |= ui.add(egui::DragValue::new(&mut obj.get_mut_location().y)
                                    .speed(1.0)
                                    .clamp_range(f64::NEG_INFINITY..=f64::INFINITY)
-                                   .prefix("y: "));
-                               ui.add(egui::DragValue::new(&mut obj.scale.x)
+                                   .prefix("y: "))
+                                   .changed();
+                               changed |= ui.add(egui::DragValue::new(&mut obj.get_mut_scale().x)
                                    .speed(0.01)
                                    .clamp_range(0.0..=f64::INFINITY)
-                                   .prefix("scale: "));
+                                   .prefix("scale: "))
+                                   .changed();
 
-                               obj.scale.y = obj.scale.x;
-                               obj.scale.z = obj.scale.x;
+                               obj.get_mut_scale().y = obj.get_scale().x;
+                               obj.get_mut_scale().z = obj.get_scale().x;
                            });
 
                            ui.horizontal(|ui| {
                                remove = ui.button("Remove").clicked();
                                duplicate = ui.button("Copy").clicked();
                                if ui.button("Center").clicked(){
-                                   obj.location.x = build_x /2.0;
-                                   obj.location.y = build_y /2.0;
+                                   obj.get_mut_location().x = build_x /2.0;
+                                   obj.get_mut_location().y = build_y /2.0;
+                                   changed = true;
                                }
+
                            });
+
+                           if changed{
+                               obj.revalidate_cache();
+                           }
 
                            if !remove {
                                if duplicate {
@@ -345,7 +383,6 @@ fn main() {
 
 
                        ui.style_mut().spacing.button_padding = Vec2::new(50., 20.);
-                       ui.style_mut().body_text_style = TextStyle::Heading;
                        ui.style_mut().override_text_style = Some(TextStyle::Heading);
 
 
@@ -353,10 +390,6 @@ fn main() {
                            let mut fonts = FontDefinitions::default();
 
                            // Large button text:
-                           fonts.family_and_size.insert(
-                               TextStyle::Button,
-                               (FontFamily::Proportional, 32.0)
-                           );
 
                            //ui.ctx().set_fonts(fonts);
 
@@ -374,7 +407,7 @@ fn main() {
                                viewer_open = true;
                                let args :Vec<_>= objects.iter()
                                    .map(|obj|{
-                                       format!("{{\"Raw\":[\"{}\",{:?}]}} ", obj.file_path.replace('\\', "\\\\"), (glam::Mat4::from_translation(obj.location) * glam::Mat4::from_scale(obj.scale) *glam::Mat4::from_translation(obj.default_offset)).transpose().to_cols_array_2d())
+                                       format!("{{\"Raw\":[\"{}\",{:?}]}} ", obj.file_path.replace('\\', "\\\\"),obj.get_model_matrix().transpose().to_cols_array_2d())
                                    })
                                    .collect();
 
@@ -501,7 +534,7 @@ fn main() {
                    if let Some(str) = gcode.read().unwrap().as_ref() {
                        ui.horizontal(|ui| {
                            ui.style_mut().spacing.button_padding = Vec2::new(50., 20.);
-                           ui.style_mut().body_text_style = TextStyle::Heading;
+                           //ui.style_mut().body_text_style = TextStyle::Heading;
                            ui.style_mut().override_text_style = Some(TextStyle::Heading);
 
 
@@ -527,10 +560,10 @@ fn main() {
                         plot_window_resp = egui::Window::new("2DViewer")
                             .open(&mut viewer_open)
                             .default_size(vec2(400.0, 400.0))
-                            .show(egui_ctx, |ui| {
+                            .show(&egui_ctx, |ui| {
 
 
-                                let mut line = Line::new(Values::from_values(vec![Value{x:0.0,y: 0.0},Value{x:0.0,y: build_y as f64 },Value{x:build_x as f64 ,y: build_y as f64 },Value{x:build_x as f64,y: 0.0  },Value{x:0.0,y: 0.0}])).width(20.0);
+                                let mut line = Line::new(Values::from_values(vec![Value{x:0.0,y: 0.0},Value{x:0.0,y: build_y as f64 },Value{x:build_x as f64 ,y: build_y as f64 },Value{x:build_x as f64,y: 0.0  },Value{x:0.0,y: 0.0},Value{x:0.0,y: build_y as f64 }])).width(5.0);
 
 
                                 let mut layer_height = 0.0;
@@ -538,7 +571,7 @@ fn main() {
 
                                 let drag_resp = ui.add(egui::DragValue::new(&mut index)
                                        .speed(1)
-                                       .clamp_range(0..=layers-1)
+                                       .clamp_range(1..=layers-1)
                                        .prefix("x: "));
 
 
@@ -579,7 +612,7 @@ fn main() {
 
                                                     if let gladius_shared::types::Command::MoveAndExtrude{start,end,width,..} = cmd{
                                                         Some(Line::new(Values::from_values(vec![Value{x:start.x,y:start.y},Value{x:end.x,y: end.y }]))
-                                                                 .stroke(Stroke{width: *width as f32 * pixels_per_plot_unit,color: Color32::BLUE}))
+                                                                 .stroke(Stroke{width: *width as f32 * pixels_per_plot_unit* 0.95,color: Color32::BLUE}))
 
                                                     }else{
                                                         None
@@ -687,7 +720,7 @@ fn main() {
 
                 target.draw(&line_positions, &line_indices, &line_program, &uniform! { model: line_model, view: view, perspective: perspective }, &params).unwrap();
 
-                egui_glium.paint(&display, &mut target, shapes);
+                egui_glium.paint(&display, &mut target);
 
                 // draw things on top of egui here
 
@@ -721,26 +754,70 @@ fn main() {
                         if let Some(proj) = cam_proj{
                             if let Some(view) = cam_view {
                                 if let Some((width, height)) = dimensions {
-                                    let inv_VP = (proj * view).inverse();
-                                    let camera_vec = glam::Vec3::new(zoom * camera_yaw.cos() * camera_pitch.cos(), zoom * camera_yaw.sin() * camera_pitch.cos(), zoom * camera_pitch.sin());
-
-                                    let cam_origin = camera_vec + glam::Vec3::new(center_pos.0, center_pos.1, 0.0);
-
-                                    let mouse_pos = Vec3::new((position.x / (width as f64 * 0.5) - 1.0 ) as f32,-(position.y / (height as f64 * 0.5) - 1.0 ) as f32, 1.0);
-
-                                    let worldPos = inv_VP.transform_point3(mouse_pos);
-
-                                    let cam_dir = worldPos.normalize();
 
 
 
-                                    for obj in &mut objects {
-                                        if obj.intersect_with_ray(cam_origin, cam_dir).is_some(){
-                                            obj.color = Vec3::new(0.0,0.0,1.0);
+
+                                    if on_render_screen {
+                                        let inv_VP = (proj * view).inverse();
+                                        let camera_vec = glam::Vec3::new(zoom * camera_yaw.cos() * camera_pitch.cos(), zoom * camera_yaw.sin() * camera_pitch.cos(), zoom * camera_pitch.sin());
+
+                                        let cam_origin = camera_vec + glam::Vec3::new(center_pos.0, center_pos.1, 0.0);
+
+                                        let mouse_pos = Vec3::new((position.x / (width as f64 * 0.5) - 1.0) as f32, -(position.y / (height as f64 * 0.5) - 1.0) as f32, 1.0);
+
+                                        let worldPos = inv_VP.transform_point3(mouse_pos);
+
+                                        let cam_dir = worldPos.normalize();
+
+                                        if !selected {
+                                            closest_point = objects
+                                                .iter_mut()
+                                                .enumerate()
+                                                .filter_map(|(en, obj)| {
+                                                    obj.hovered = false;
+                                                    obj.intersect_with_ray(cam_origin, cam_dir).map(|p| (en, obj, p))
+                                                })
+                                                .min_by(|(_, _, (ta, _)), (_, _, (tb, _))| ta.partial_cmp(tb).unwrap())
+                                                .map(|(index, obj, point)| (index, point.1,obj.get_location().clone()));
+
+                                            if let Some((index, _,_)) = closest_point {
+                                                objects[index].hovered = true;
+                                            }
+                                        }else{
+                                            let (index, intersect_point, translation) = closest_point.expect("If selected closest point must be set");
+                                            let z_height = intersect_point.z;
+
+                                            let (x_intercept, y_intercept) ={
+                                                let z_diff = cam_origin.z - z_height;
+                                                let y_over_z_slope =  cam_dir.y / cam_dir.z;
+                                                let x_over_z_slope =  cam_dir.x / cam_dir.z;
+
+                                                let x_diff = x_over_z_slope *  z_diff;
+                                                let y_diff = y_over_z_slope *  z_diff;
+
+                                                (cam_origin.x - x_diff, cam_origin.y - y_diff)
+                                            };
+
+                                            let x_diff =  x_intercept - intersect_point.x;
+                                            let y_diff =  y_intercept - intersect_point.y;
+
+                                            objects[index].get_mut_location().x = translation.x + x_diff;
+                                            objects[index].get_mut_location().y = translation.y + y_diff;
+
+                                            objects[index].revalidate_cache();
+
+
+                                            println!("XYPlane Intercetion ({},{})",x_intercept, y_intercept);
+
                                         }
-                                        else{
-                                            obj.color = Vec3::new(1.0,1.0,0.0);
-                                        }
+
+
+
+
+
+
+
                                     }
                                 }
 
@@ -766,20 +843,29 @@ fn main() {
                 match event {
                     DeviceEvent::Button {button, state} => {
                         if button == 1{
+
+                            if closest_point.is_some() && !selected && left_mouse_button_state == ElementState::Released && state == ElementState::Pressed {
+                                selected = true;
+                            }
+
+                            if state == ElementState::Released && selected {
+
+                                selected = false;
+                            }
                             left_mouse_button_state = state;
                         }
 
                     }
 
                     DeviceEvent::MouseMotion {delta: (dx,dy)} =>{
-                        if left_mouse_button_state == ElementState::Pressed && on_render_screen && in_window{
+                        if left_mouse_button_state == ElementState::Pressed && on_render_screen && in_window && !selected{
                             camera_yaw += dx as f32 * -0.01;
                             camera_pitch = (camera_pitch + dy as f32 * 0.01).min(std::f32::consts::FRAC_PI_2 - 0.001).max(-std::f32::consts::FRAC_PI_2 + 0.001);
                         }
 
                     }
                     DeviceEvent::MouseWheel {delta} =>{
-                        if  on_render_screen && in_window {
+                        if  on_render_screen && in_window && !selected {
                             if let MouseScrollDelta::LineDelta(_x, y) = delta {
                                 zoom = (zoom * (1.0 - (0.1 * y.signum()))).min(1000.0).max(5.0);
                             }
