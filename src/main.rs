@@ -206,6 +206,7 @@ fn main() {
     let mut error = Arc::new(RwLock::new(None));
     let mut command_running = Arc::new(RwLock::new(false));
     let mut command_state = Arc::new(RwLock::new(String::new()));
+    let mut refresh = Arc::new(RwLock::new(false));
     let mut index = 0;
     let mut layers = 0;
 
@@ -418,6 +419,7 @@ fn main() {
                                let command_running_clone = command_running.clone();
                                let command_state_clone = command_state.clone();
                                let settings_path_clone = settings_path.clone();
+                               let refresh_clone = refresh.clone();
 
 
                                std::thread::spawn(move ||{
@@ -477,6 +479,8 @@ fn main() {
                                                    Message::Warning(_warn) =>{
                                                    }
                                                }
+
+                                               *refresh_clone.write().unwrap() = true;
                                            }
                                        }
 
@@ -663,10 +667,18 @@ fn main() {
             *control_flow = if quit {
                 glutin::event_loop::ControlFlow::Exit
             } else if needs_repaint {
+
+                *refresh.write().unwrap() = false;
                 display.gl_window().window().request_redraw();
+
                 glutin::event_loop::ControlFlow::Poll
             } else {
-                glutin::event_loop::ControlFlow::Wait
+                if *command_running.read().unwrap(){
+                    //If command is running keep refreshing
+                    glutin::event_loop::ControlFlow::Poll
+                }else{
+                    glutin::event_loop::ControlFlow::Wait
+                }
             };
 
             {
@@ -727,6 +739,12 @@ fn main() {
                 target.finish().unwrap();
             }
         };
+
+
+        if *refresh.read().unwrap() {
+            *refresh.write().unwrap() = false;
+            redraw();
+        }
 
         match event {
             // Platform-dependent event handlers to workaround a winit bug
@@ -806,9 +824,6 @@ fn main() {
                                             objects[index].get_mut_location().y = translation.y + y_diff;
 
                                             objects[index].revalidate_cache();
-
-
-                                            println!("XYPlane Intercetion ({},{})",x_intercept, y_intercept);
 
                                         }
 
