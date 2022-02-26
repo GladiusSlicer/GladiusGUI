@@ -1,4 +1,4 @@
-pub const vertex_shader_src: &str = r#"
+pub const VERTEX_SHADER_SRC: &str = r#"
     #version 150
     in vec3 position;
     out vec3 viewPosition;
@@ -18,7 +18,7 @@ pub const vertex_shader_src: &str = r#"
     }
 "#;
 
-pub const fragment_shader_src: &str = r#"
+pub const FRAGMENT_SHADER_SRC: &str = r#"
         #version 150
         in vec3 viewPosition;
         in vec3 v_position;
@@ -42,7 +42,7 @@ pub const fragment_shader_src: &str = r#"
 
         }
     "#;
-pub const line_vertex_shader_src: &str = r#"
+pub const LINE_VERTEX_SHADER_SRC: &str = r#"
         #version 150
         in vec3 position;
         uniform mat4 perspective;
@@ -54,7 +54,7 @@ pub const line_vertex_shader_src: &str = r#"
         }
     "#;
 
-pub const line_fragment_shader_src: &str = r#"
+pub const LINE_FRAGMENT_SHADER_SRC: &str = r#"
         #version 140
         out vec4 color;
         void main() {

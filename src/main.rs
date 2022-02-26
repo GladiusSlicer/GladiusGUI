@@ -8,19 +8,17 @@ use egui::plot::{Corner, Legend, Line, Plot, Value, Values};
 use egui::{
     vec2, Color32, FontDefinitions, FontFamily, InnerResponse, Pos2, Sense, Stroke, TextStyle, Vec2,
 };
-use env_logger::Target::Stderr;
 use gladius_shared::error::SlicerErrors;
 use gladius_shared::messages::Message;
-use glam::{Vec3, Vec4};
+use glam::Vec3;
 use glium::{glutin, uniform};
 use itertools::Itertools;
 use native_dialog::FileDialog;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, RwLock};
 use winit::event::{DeviceEvent, ElementState, MouseScrollDelta, WindowEvent};
-use winit::window::Fullscreen;
 
 fn vertex(pos: [f32; 3]) -> DisplayVertex {
     DisplayVertex {
@@ -200,20 +198,19 @@ fn main() {
     let mut left_mouse_button_state = ElementState::Released;
     let mut on_render_screen = false;
     let mut in_window = false;
-    let mut calc_vals = Arc::new(RwLock::new(None));
-    let mut gcode = Arc::new(RwLock::new(None));
-    let mut commands = Arc::new(RwLock::new(None));
-    let mut error = Arc::new(RwLock::new(None));
-    let mut command_running = Arc::new(RwLock::new(false));
-    let mut command_state = Arc::new(RwLock::new(String::new()));
-    let mut refresh = Arc::new(RwLock::new(false));
+    let calc_vals = Arc::new(RwLock::new(None));
+    let gcode = Arc::new(RwLock::new(None));
+    let commands = Arc::new(RwLock::new(None));
+    let error = Arc::new(RwLock::new(None));
+    let command_running = Arc::new(RwLock::new(false));
+    let command_state = Arc::new(RwLock::new(String::new()));
+    let refresh = Arc::new(RwLock::new(false));
     let mut index = 0;
     let mut layers = 0;
 
     let mut cam_view = None;
     let mut cam_proj = None;
     let mut dimensions = None;
-
 
     let mut closest_point = None;
     let mut selected = false;
@@ -228,17 +225,17 @@ fn main() {
     let mut settings_path = "".to_string();
 
     let model_program =
-        glium::Program::from_source(&display, vertex_shader_src, fragment_shader_src, None)
+        glium::Program::from_source(&display, VERTEX_SHADER_SRC, FRAGMENT_SHADER_SRC, None)
             .unwrap();
     let line_program = glium::Program::from_source(
         &display,
-        line_vertex_shader_src,
-        line_fragment_shader_src,
+        LINE_VERTEX_SHADER_SRC,
+        LINE_FRAGMENT_SHADER_SRC,
         None,
     )
     .unwrap();
 
-    let mut objects :Vec<Object> = vec![];
+    let mut objects: Vec<Object> = vec![];
 
     let mut plot_window_resp = None;
     let mut window_rec = None;
@@ -366,6 +363,8 @@ fn main() {
 
                            if changed{
                                obj.revalidate_cache();
+                               *gcode.write().unwrap() = None;
+                               *calc_vals.write().unwrap() = None;
                            }
 
                            if !remove {
@@ -438,7 +437,7 @@ fn main() {
                                        print!("{}",arg.replace('\\', "\\\\").replace('\"', "\\\""));
                                    }
 
-                                   println!("");
+                                   println!();
 
                                    let cpus = format!("{}", (num_cpus::get()).max(1));
 
@@ -447,7 +446,7 @@ fn main() {
                                    if let Ok(mut child) = command
                                        .arg("-m")
                                        .arg("-s")
-                                       .arg(format!("{}", settings_path_clone.replace('\\', "\\\\")))
+                                       .arg( settings_path_clone.replace('\\', "\\\\"))
                                        .arg("-j")
                                        .arg(cpus)
                                        .stdout(Stdio::piped())
@@ -485,7 +484,7 @@ fn main() {
                                        }
 
                                        if let Some(ref mut stderr) = child.stderr {
-                                           let mut buff = BufReader::new(stderr);
+                                           let buff = BufReader::new(stderr);
                                            if buff.lines().next().is_some() {
                                                *error_clone.write().unwrap() = Some(Errors::SlicerCommunicationIssue);
                                            }
@@ -522,7 +521,7 @@ fn main() {
                            ui.label(format!("Error {:#X}",code));
                        });
                        ui.horizontal(|ui| {
-                           ui.label(format!("{}",message));
+                           ui.label(message.to_string());
                        });
                    };
 
@@ -567,7 +566,7 @@ fn main() {
                             .show(&egui_ctx, |ui| {
 
 
-                                let mut line = Line::new(Values::from_values(vec![Value{x:0.0,y: 0.0},Value{x:0.0,y: build_y as f64 },Value{x:build_x as f64 ,y: build_y as f64 },Value{x:build_x as f64,y: 0.0  },Value{x:0.0,y: 0.0},Value{x:0.0,y: build_y as f64 }])).width(5.0);
+                                let line = Line::new(Values::from_values(vec![Value{x:0.0,y: 0.0},Value{x:0.0,y: build_y as f64 },Value{x:build_x as f64 ,y: build_y as f64 },Value{x:build_x as f64,y: 0.0  },Value{x:0.0,y: 0.0},Value{x:0.0,y: build_y as f64 }])).width(5.0);
 
 
                                 let mut layer_height = 0.0;
@@ -643,7 +642,7 @@ fn main() {
 
                 });
 
-                window_rec = plot_window_resp.as_ref().map(|r| r.response.rect.clone());
+                window_rec = plot_window_resp.as_ref().map(|r| r.response.rect);
 
                 let full_resp = match plot_window_resp.take(){
                     Some(mut window_resp) => {
@@ -672,14 +671,13 @@ fn main() {
                 display.gl_window().window().request_redraw();
 
                 glutin::event_loop::ControlFlow::Poll
-            } else {
-                if *command_running.read().unwrap(){
-                    //If command is running keep refreshing
-                    glutin::event_loop::ControlFlow::Poll
-                }else{
-                    glutin::event_loop::ControlFlow::Wait
-                }
+            } else if *command_running.read().unwrap(){
+                //If command is running keep refreshing
+                glutin::event_loop::ControlFlow::Poll
+            }else{
+                glutin::event_loop::ControlFlow::Wait
             };
+
 
             {
                 use glium::Surface as _;
@@ -777,16 +775,16 @@ fn main() {
 
 
                                     if on_render_screen {
-                                        let inv_VP = (proj * view).inverse();
+                                        let inv_vp = (proj * view).inverse();
                                         let camera_vec = glam::Vec3::new(zoom * camera_yaw.cos() * camera_pitch.cos(), zoom * camera_yaw.sin() * camera_pitch.cos(), zoom * camera_pitch.sin());
 
                                         let cam_origin = camera_vec + glam::Vec3::new(center_pos.0, center_pos.1, 0.0);
 
                                         let mouse_pos = Vec3::new((position.x / (width as f64 * 0.5) - 1.0) as f32, -(position.y / (height as f64 * 0.5) - 1.0) as f32, 1.0);
 
-                                        let worldPos = inv_VP.transform_point3(mouse_pos);
+                                        let world_pos = inv_vp.transform_point3(mouse_pos);
 
-                                        let cam_dir = worldPos.normalize();
+                                        let cam_dir = world_pos.normalize();
 
                                         if !selected {
                                             closest_point = objects
@@ -797,7 +795,7 @@ fn main() {
                                                     obj.intersect_with_ray(cam_origin, cam_dir).map(|p| (en, obj, p))
                                                 })
                                                 .min_by(|(_, _, (ta, _)), (_, _, (tb, _))| ta.partial_cmp(tb).unwrap())
-                                                .map(|(index, obj, point)| (index, point.1,obj.get_location().clone()));
+                                                .map(|(index, obj, point)| (index, point.1,*obj.get_location()));
 
                                             if let Some((index, _,_)) = closest_point {
                                                 objects[index].hovered = true;
@@ -824,14 +822,10 @@ fn main() {
                                             objects[index].get_mut_location().y = translation.y + y_diff;
 
                                             objects[index].revalidate_cache();
+                                            *gcode.write().unwrap() = None;
+                                            *calc_vals.write().unwrap() = None;
 
                                         }
-
-
-
-
-
-
 
                                     }
                                 }

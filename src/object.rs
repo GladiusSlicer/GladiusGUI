@@ -1,7 +1,7 @@
 use crate::vertex;
 use gladius_shared::error::SlicerErrors;
 use gladius_shared::loader::*;
-use glam::{Mat4, Vec3, Vec4};
+use glam::{Mat4, Vec3};
 use glium::implement_vertex;
 use itertools::*;
 use std::ffi::OsStr;
@@ -15,7 +15,7 @@ pub struct DisplayVertex {
 implement_vertex!(DisplayVertex, position);
 
 #[derive(Debug)]
-pub struct AABB{
+pub struct AABB {
     pub min_x: f32,
     pub min_y: f32,
     pub min_z: f32,
@@ -24,35 +24,32 @@ pub struct AABB{
     pub max_z: f32,
 }
 
-impl AABB{
-    pub fn intersect_with_ray(&self, ray_origin: Vec3, ray_dir: Vec3) -> bool{
-
+impl AABB {
+    pub fn intersect_with_ray(&self, ray_origin: Vec3, ray_dir: Vec3) -> bool {
         //https://gamedev.stackexchange.com/questions/18436/most-efficient-aabb-vs-ray-collision-algorithms
         // r.dir is unit direction vector of ray
         // lb is the corner of AABB with minimal coordinates - left bottom, rt is maximal corner
         // r.org is origin of ray
-        let t1 = (self.min_x - ray_origin.x)/ray_dir.x;
-        let t2 = (self.max_x - ray_origin.x)/ray_dir.x;
-        let t3 = (self.min_y - ray_origin.y)/ray_dir.y;
-        let t4 = (self.max_y - ray_origin.y)/ray_dir.y;
-        let t5 = (self.min_z - ray_origin.z)/ray_dir.z;
-        let t6 = (self.max_z - ray_origin.z)/ray_dir.z;
+        let t1 = (self.min_x - ray_origin.x) / ray_dir.x;
+        let t2 = (self.max_x - ray_origin.x) / ray_dir.x;
+        let t3 = (self.min_y - ray_origin.y) / ray_dir.y;
+        let t4 = (self.max_y - ray_origin.y) / ray_dir.y;
+        let t5 = (self.min_z - ray_origin.z) / ray_dir.z;
+        let t6 = (self.max_z - ray_origin.z) / ray_dir.z;
 
-        let tmin = t1.min( t2).max(t3.min( t4)).max( t5.min( t6));
-        let tmax = t1.max( t2).min(t3.max( t4)).min( t5.max( t6));
+        let tmin = t1.min(t2).max(t3.min(t4)).max(t5.min(t6));
+        let tmax = t1.max(t2).min(t3.max(t4)).min(t5.max(t6));
 
         // if tmax < 0, ray (line) is intersecting AABB, but the whole AABB is behind us
-        if tmax < 0.0
-        {
+        if tmax < 0.0 {
             return false;
         }
 
         // if tmin > tmax, ray doesn't intersect AABB
-        if tmin > tmax
-        {
+        if tmin > tmax {
             return false;
         }
-        return true;
+        true
     }
 }
 #[derive(Debug)]
@@ -70,76 +67,78 @@ pub struct Object {
     pub index_buff: glium::IndexBuffer<u32>,
 }
 impl Object {
-
     pub fn set_scale(&mut self, scale: Vec3) {
         self.scale = scale;
     }
 
     pub fn set_location(&mut self, location: Vec3) {
         self.location = location;
-
     }
 
-    pub fn get_mut_location(&mut self) -> &mut Vec3{
+    pub fn get_mut_location(&mut self) -> &mut Vec3 {
         &mut self.location
     }
 
-    pub fn get_location(&self) -> &Vec3{
+    pub fn get_location(&self) -> &Vec3 {
         &self.location
     }
 
-    pub fn get_mut_scale(&mut self) -> &mut Vec3{
+    pub fn get_mut_scale(&mut self) -> &mut Vec3 {
         &mut self.scale
     }
-    pub fn get_scale(&self) -> &Vec3{
+    pub fn get_scale(&self) -> &Vec3 {
         &self.scale
     }
 
-    pub fn invalidate_cache(&mut self){
+    pub fn invalidate_cache(&mut self) {
         self.transformed_verts = None;
         self.aabb = None;
     }
 
-    pub fn revalidate_cache(&mut self){
-
+    pub fn revalidate_cache(&mut self) {
         println!("revalidate");
-         let vertices = {
-             let mat = self.get_model_matrix();
+        let vertices = {
+            let mat = self.get_model_matrix();
 
-             self.vert_buff.read().unwrap()
+            self.vert_buff
+                .read()
+                .unwrap()
                 .iter()
-                .map(|(v)| {
-                    mat.transform_point3(Vec3::new(v.position.0, v.position.1, v.position.2))
-                })
+                .map(|v| mat.transform_point3(Vec3::new(v.position.0, v.position.1, v.position.2)))
                 .collect_vec()
         };
 
-         let aabb =  {
-             let (min_x, max_x, min_y, max_y, min_z, max_z) = vertices.iter().fold(
-                 (
-                     f32::INFINITY,
-                     f32::NEG_INFINITY,
-                     f32::INFINITY,
-                     f32::NEG_INFINITY,
-                     f32::INFINITY,
-                     f32::NEG_INFINITY,
-                 ),
-                 |a, b| {
-                     (
-                         a.0.min(b.x),
-                         a.1.max(b.x),
-                         a.2.min(b.y),
-                         a.3.max(b.y),
-                         a.4.min(b.z),
-                         a.5.max(b.z),
-                     )
-                 },
-             );
+        let aabb = {
+            let (min_x, max_x, min_y, max_y, min_z, max_z) = vertices.iter().fold(
+                (
+                    f32::INFINITY,
+                    f32::NEG_INFINITY,
+                    f32::INFINITY,
+                    f32::NEG_INFINITY,
+                    f32::INFINITY,
+                    f32::NEG_INFINITY,
+                ),
+                |a, b| {
+                    (
+                        a.0.min(b.x),
+                        a.1.max(b.x),
+                        a.2.min(b.y),
+                        a.3.max(b.y),
+                        a.4.min(b.z),
+                        a.5.max(b.z),
+                    )
+                },
+            );
 
-             AABB{
-                 min_x, max_x, min_y, max_y, min_z, max_z
-             }
-         };
+            AABB {
+                min_x,
+                max_x,
+                min_y,
+                max_y,
+                min_z,
+                max_z,
+            }
+        };
 
         self.transformed_verts = Some(vertices);
         self.aabb = Some(aabb);
@@ -165,71 +164,74 @@ impl Object {
             vert_buff: positions,
             index_buff: indices,
             transformed_verts: None,
-            aabb: None
+            aabb: None,
         }
     }
 
     pub fn get_model_matrix(&self) -> Mat4 {
-        (glam::Mat4::from_translation(self.location)
+        glam::Mat4::from_translation(self.location)
             * glam::Mat4::from_scale(self.scale)
-            * glam::Mat4::from_translation(self.default_offset))
+            * glam::Mat4::from_translation(self.default_offset)
     }
 
-    pub fn intersect_with_ray(&mut self, ray_origin: Vec3, ray_dir: Vec3) -> Option<(f32,Vec3)> {
+    pub fn intersect_with_ray(&mut self, ray_origin: Vec3, ray_dir: Vec3) -> Option<(f32, Vec3)> {
+        let vertices = self.transformed_verts.take().unwrap_or_else(|| {
+            let mat = self.get_model_matrix();
 
-
-
-         let vertices = self.transformed_verts.take().unwrap_or_else(|| {
-             let mat = self.get_model_matrix();
-
-             self.vert_buff.read().unwrap()
+            self.vert_buff
+                .read()
+                .unwrap()
                 .iter()
-                .map(|(v)| {
-                    mat.transform_point3(Vec3::new(v.position.0, v.position.1, v.position.2))
-                })
+                .map(|v| mat.transform_point3(Vec3::new(v.position.0, v.position.1, v.position.2)))
                 .collect()
         });
 
-         let aabb = self.aabb.take().unwrap_or_else(|| {
-             let (min_x, max_x, min_y, max_y, min_z, max_z) = vertices.iter().fold(
-                 (
-                     f32::INFINITY,
-                     f32::NEG_INFINITY,
-                     f32::INFINITY,
-                     f32::NEG_INFINITY,
-                     f32::INFINITY,
-                     f32::NEG_INFINITY,
-                 ),
-                 |a, b| {
-                     (
-                         a.0.min(b.x),
-                         a.1.max(b.x),
-                         a.2.min(b.y),
-                         a.3.max(b.y),
-                         a.4.min(b.z),
-                         a.5.max(b.z),
-                     )
-                 },
-             );
+        let aabb = self.aabb.take().unwrap_or_else(|| {
+            let (min_x, max_x, min_y, max_y, min_z, max_z) = vertices.iter().fold(
+                (
+                    f32::INFINITY,
+                    f32::NEG_INFINITY,
+                    f32::INFINITY,
+                    f32::NEG_INFINITY,
+                    f32::INFINITY,
+                    f32::NEG_INFINITY,
+                ),
+                |a, b| {
+                    (
+                        a.0.min(b.x),
+                        a.1.max(b.x),
+                        a.2.min(b.y),
+                        a.3.max(b.y),
+                        a.4.min(b.z),
+                        a.5.max(b.z),
+                    )
+                },
+            );
 
-             AABB{
-                 min_x, max_x, min_y, max_y, min_z, max_z
-             }
-         });
+            AABB {
+                min_x,
+                max_x,
+                min_y,
+                max_y,
+                min_z,
+                max_z,
+            }
+        });
 
-        if !aabb.intersect_with_ray(ray_origin,ray_dir){
+        if !aabb.intersect_with_ray(ray_origin, ray_dir) {
             self.transformed_verts = Some(vertices);
             self.aabb = Some(aabb);
             return None;
         }
 
-        let ret = self.index_buff
+        let ret = self
+            .index_buff
             .read()
             .unwrap()
             .iter()
             .tuples::<(_, _, _)>()
             .map(|(v0, v1, v2)| {
-                ///make points
+                //make points
                 (
                     vertices[*v0 as usize],
                     vertices[*v1 as usize],
@@ -262,8 +264,7 @@ impl Object {
                             // ray intersection
                             {
                                 Some(t)
-                            } else
-                            // This means that there is a line intersection but not a ray intersection.
+                            } else // This means that there is a line intersection but not a ray intersection.
                             {
                                 None
                             }
@@ -272,7 +273,7 @@ impl Object {
                 }
             })
             .min_by(|a, b| a.partial_cmp(b).unwrap())
-            .map(|t|(t, ray_origin + ray_dir * t));
+            .map(|t| (t, ray_origin + ray_dir * t));
 
         self.transformed_verts = Some(vertices);
         self.aabb = Some(aabb);
@@ -381,7 +382,7 @@ pub fn load(filepath: &str, display: &glium::Display) -> Result<Vec<Object>, Sli
                 vert_buff: positions,
                 transformed_verts: None,
                 aabb: None,
-                hovered: false
+                hovered: false,
             }
         })
         .collect())
