@@ -18,8 +18,9 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, RwLock};
+use json_gettext::JSONGetText;
 use winit::event::{DeviceEvent, ElementState, MouseScrollDelta, WindowEvent};
-
+#[macro_use] extern crate json_gettext;
 fn vertex(pos: [f32; 3]) -> DisplayVertex {
     DisplayVertex {
         position: (pos[0], pos[1], pos[2]),
@@ -186,6 +187,14 @@ fn create_display(event_loop: &glutin::event_loop::EventLoop<()>) -> glium::Disp
 }
 
 fn main() {
+
+    let ctx = static_json_gettext_build!(
+        "en_US";
+        "en_US" => "langs/en_US.json",
+    ).unwrap();
+
+    let lang = "en_US";
+
     let event_loop = glutin::event_loop::EventLoop::with_user_event();
     let display = create_display(&event_loop);
 
@@ -274,10 +283,10 @@ fn main() {
                 plot_window_resp = None;
                 window_clicked = false;
                let resp = egui::SidePanel::left("my_side_panel").show(&egui_ctx, |ui| {
-                   ui.heading("Print Setup");
+                   ui.heading(&get_translated_string(&ctx, lang, "setup_bar_heading"));
                    ui.horizontal(|ui| {
-                       ui.label("Model path: ");
-                       if ui.button("Choose Model").clicked() {
+                       ui.label(&get_translated_string(&ctx, lang, "model_path"));
+                       if ui.button(&get_translated_string(&ctx, lang,  "choose_model_button")).clicked() {
                            let paths = FileDialog::new()
                                .add_filter("Supported Model Types", &["stl", "3mf"])
                                .show_open_multiple_file()
@@ -296,7 +305,7 @@ fn main() {
                        }
                    });
                    ui.horizontal(|ui| {
-                       ui.label("Settings path: ");
+                       ui.label(&get_translated_string(&ctx, lang, "settings_path"));
                        let mut short = settings_path.clone();
                        if short.len() > 13{
                            short.truncate(10);
@@ -351,9 +360,9 @@ fn main() {
                            });
 
                            ui.horizontal(|ui| {
-                               remove = ui.button("Remove").clicked();
-                               duplicate = ui.button("Copy").clicked();
-                               if ui.button("Center").clicked(){
+                               remove = ui.button(&get_translated_string(&ctx, lang,"remove")).clicked();
+                               duplicate = ui.button(&get_translated_string(&ctx, lang, "copy")).clicked();
+                               if ui.button(&get_translated_string(&ctx, lang, "center")).clicked(){
                                    obj.get_mut_location().x = build_x /2.0;
                                    obj.get_mut_location().y = build_y /2.0;
                                    changed = true;
@@ -394,7 +403,7 @@ fn main() {
                            //ui.ctx().set_fonts(fonts);
 
 
-                           if ui.add_enabled(!*command_running.read().unwrap() && !settings_path.is_empty() && !objects.is_empty(), egui::Button::new("Slice")).clicked() {
+                           if ui.add_enabled(!*command_running.read().unwrap() && !settings_path.is_empty() && !objects.is_empty(), egui::Button::new(&get_translated_string(&ctx, lang, "slice"))).clicked() {
                                *calc_vals.write().unwrap() = None;
                                *gcode.write().unwrap() = None;
                                *error.write().unwrap() = None;
@@ -560,7 +569,7 @@ fn main() {
                        });
                    }
                    if let Some(cmds) = commands.read().unwrap().as_ref() {
-                        plot_window_resp = egui::Window::new("2DViewer")
+                        plot_window_resp = egui::Window::new(&get_translated_string(&ctx, lang, "viewer"))
                             .open(&mut viewer_open)
                             .default_size(vec2(400.0, 400.0))
                             .show(&egui_ctx, |ui| {
@@ -586,7 +595,7 @@ fn main() {
 
 
                                 let resp = plot.show(ui, |plot_ui| {
-                                    plot_ui.line(line.name("Border"));
+                                    plot_ui.line(line.name(&get_translated_string(&ctx, lang, "Border")));
 
                                     let p1 = plot_ui.screen_from_plot(Value{x:0.0,y:0.0});
                                     let p2 = plot_ui.screen_from_plot(Value{x:0.0,y:1.0});
@@ -892,4 +901,9 @@ fn main() {
             },
         }
     });
+}
+
+
+fn get_translated_string(ctx:& JSONGetText, lang: &str,index_str: &str) -> String{
+    get_text!(ctx,lang, index_str).map_or(String::from("Not Translated"),|s| s.to_string())
 }
