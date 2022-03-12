@@ -2,25 +2,26 @@
 <svg height="500" width="500" xmlns="http://www.w3.org/2000/svg">
   <g>
 	  <circle cx="250" cy="250" r="249" stroke="black" stroke-width="3" fill="Black" />
-	  <line x1="350" y1="450" x2="150" y2="450" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
+	  <line x1="340" y1="450" x2="160" y2="450" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
 	  
-	  <line x1="175" y1="400" x2="85" y2="400" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
+	  <line x1="175" y1="400" x2="95" y2="400" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
 	  <line x1="140" y1="350" x2="60" y2="350" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
-	  <line x1="125" y1="300" x2="50" y2="300" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
-	  <line x1="120" y1="250" x2="45" y2="250" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
+	  <line x1="115" y1="300" x2="40" y2="300" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
+	  <line x1="110" y1="250" x2="35" y2="250" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
 
-	  <line x1="415" y1="400" x2="325" y2="400" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
-	  <line x1="450" y1="350" x2="375" y2="350" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
+	  <line x1="405" y1="400" x2="325" y2="400" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
+	  <line x1="440" y1="350" x2="365" y2="350" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
 	  <line x1="450" y1="300" x2="375" y2="300" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
 	  <line x1="450" y1="250" x2="275" y2="250" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
 	  
 	  
-	  <line x1="125" y1="200" x2="50" y2="200" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
-	  <line x1="150" y1="150" x2="60" y2="150" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
-	  <line x1="415" y1="100" x2="85" y2="100" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
-	  <line x1="250" y1="50" x2="150" y2="50" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
+	  <line x1="115" y1="200" x2="40" y2="200" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
+	  <line x1="140" y1="150" x2="60" y2="150" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
+	  <line x1="405" y1="100" x2="95" y2="100" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
+	  
+	  <line x1="250" y1="50" x2="160" y2="50" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
 	  <line x1="250" y1="50" x2="250" y2="0" style="stroke:rgb(255,255,0);stroke-width:48;stroke-linecap:round" />
 	  
-	  <polygon points="225,25 275,25 300,0 200,0" style="fill:White;stroke-width:0" />
+	  <polygon points="225,20 275,20 300,0 200,0" style="fill:White;stroke-width:0" />
   </g>
 </svg>
