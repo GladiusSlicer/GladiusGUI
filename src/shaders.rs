@@ -30,14 +30,12 @@ pub const FRAGMENT_SHADER_SRC: &str = r#"
             vec3 faceNormal = normalize( cross( xTangent, yTangent ));
 
 
-            const vec3 ambient_color = vec3(0.0, 0.0, 0.0);
+            vec3 ambient_color = v_color * 0.2;
             vec3 diffuse_color = v_color;
-            const vec3 specular_color = vec3(1.0, 1.0, 1.0);
+            vec3 specular_color = vec3(1.0) - (vec3(1.0) - v_color ) * 0.2;
 
             float diffuse = max(dot(normalize(faceNormal), normalize(vec3(0., 0.0, 0.1))), 0.0);
-            vec3 camera_dir = -normalize(v_position);
-            vec3 half_direction = normalize(camera_dir);
-            float specular = pow(max(dot(half_direction, -normalize(faceNormal)), 0.0), 128.0);
+            float specular = pow(diffuse, 128.0);
             color = vec4(ambient_color + diffuse * diffuse_color + specular * specular_color, 1.0);
 
 
