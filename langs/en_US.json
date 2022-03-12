@@ -1,0 +1,13 @@
+{
+  "viewer": "2D Viewer",
+  "setup_bar_heading" : "Setup Print",
+  "choose_model_button": "Choose Model",
+  "model_path": "Model Path: ",
+  "border": "Border",
+  "slice": "Slice",
+  "remove": "Remove",
+  "copy": "Copy",
+  "center": "Center",
+  "settings_path": "Settings Path: "
+
+}
