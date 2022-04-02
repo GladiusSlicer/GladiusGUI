@@ -580,11 +580,9 @@ fn main() {
 
                                 let mut layer_height = 0.0;
 
-
-                                let drag_resp = ui.add(egui::DragValue::new(&mut index)
-                                       .speed(1)
-                                       .clamp_range(1..=layers-1)
-                                       .prefix("x: "));
+                                ui.style_mut().spacing.slider_width = ui.available_width() - 100.0;
+                                let drag_resp = ui.add(egui::Slider::new(&mut index, 1..=layers-1)
+                                    .prefix("x: "));
 
 
                                 let plot = Plot::new("items_demo")
@@ -664,7 +662,8 @@ fn main() {
                 };
                  //println!("here {} {} {}",full_resp.hovered(),full_resp.dragged(),full_resp.is_pointer_button_down_on());
 
-                on_render_screen = !full_resp.hovered() && !full_resp.dragged() && !full_resp.is_pointer_button_down_on();
+               //on_render_screen = !full_resp.hovered() && !full_resp.dragged() && !full_resp.is_pointer_button_down_on();
+               on_render_screen = !egui_ctx.wants_pointer_input();
             });
 
 
