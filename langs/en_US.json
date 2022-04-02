@@ -8,6 +8,9 @@
   "remove": "Remove",
   "copy": "Copy",
   "center": "Center",
+  "plastic_volume_msg": "This print will use {} cm^3 of plastic",
+  "plastic_weight_msg": "This print will use {} grams of plastic",
+  "print_time_msg": "This print will take {0} hours and {1} minutes",
   "settings_path": "Settings Path: "
 
 }

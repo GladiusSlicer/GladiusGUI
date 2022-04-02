@@ -512,14 +512,15 @@ fn main() {
 
                    if let Some(cv) = calc_vals.clone().read().unwrap().as_ref() {
                        ui.horizontal(|ui| {
-                           ui.label(format!("This print will use {:.0} cm^3 of plastic",cv.plastic_volume));
+                           ui.label(get_translated_string_argument(&ctx,lang,"plastic_volume_msg",format!("{:.0}",cv.plastic_volume)));
                        });
                        ui.horizontal(|ui| {
-                           ui.label(format!("This print will use {:.0} grams of plastic",cv.plastic_weight));
+                           ui.label(get_translated_string_argument(&ctx,lang,"plastic_weight_msg",format!("{:.0}",cv.plastic_weight)));
+
                        });
                        ui.horizontal(|ui| {
                            let (hour,min,_,_) = cv.get_hours_minutes_seconds_fract_time();
-                           ui.label(format!("This print will take {} hours and {} minutes",hour,min));
+                           ui.label(get_translated_string_arguments(&ctx,lang,"print_time_msg",&[hour.to_string(), min.to_string()]));
                        });
                    };
 
@@ -905,4 +906,16 @@ fn main() {
 
 fn get_translated_string(ctx:& JSONGetText, lang: &str,index_str: &str) -> String{
     get_text!(ctx,lang, index_str).map_or(String::from("Not Translated"),|s| s.to_string())
+}
+fn get_translated_string_argument(ctx:& JSONGetText, lang: &str,index_str: &str, argument: String) -> String{
+    get_text!(ctx,lang, index_str).map_or(String::from("Not Translated {}"),|s| s.to_string()).replace("{}", &argument)
+}
+
+fn get_translated_string_arguments(ctx:& JSONGetText, lang: &str,index_str: &str, arguments: &[String]) -> String{
+    let mut ret_string = get_text!(ctx,lang, index_str).map_or(String::from("Not Translated {}"),|s| s.to_string());
+    for (count,arg) in arguments.iter().enumerate(){
+        ret_string = ret_string.replace(&format!("{{{}}}",count), &arg);
+    }
+
+    ret_string
 }
