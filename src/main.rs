@@ -1,19 +1,23 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 mod object;
 mod shaders;
+mod model;
 
 use crate::object::{load, DisplayVertex, Object};
 use crate::shaders::*;
+use crate::model::*;
+
+use native_dialog::FileDialog;
+
 use egui::plot::{Corner, Legend, Line, Plot, Value, Values};
 use egui::{
-    vec2, Color32, FontDefinitions, FontFamily, InnerResponse, Pos2, Sense, Stroke, TextStyle, Vec2,
+    Color32, FontDefinitions, FontFamily, InnerResponse, Pos2, Sense, Stroke, TextStyle,
 };
 use gladius_shared::error::SlicerErrors;
 use gladius_shared::messages::Message;
-use glam::Vec3;
-use glium::{glutin, uniform};
+use glam::{Vec2, Vec3};
+use glium::{glutin, Surface, uniform};
 use itertools::Itertools;
-use native_dialog::FileDialog;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
@@ -27,6 +31,7 @@ fn vertex(pos: [f32; 3]) -> DisplayVertex {
     }
 }
 
+#[derive(Clone, Debug)]
 enum Errors {
     SlicerCommunicationIssue,
     SlicerApplicationIssue,
@@ -48,76 +53,7 @@ impl Errors {
         }
     }
 }
-/*
-fn create_mesh(
-    display: &glium::Display,
-) -> (glium::VertexBuffer<DisplayVertex>, glium::IndexBuffer<u32>) {
-    create_cube_mesh(display, (-5.0, 5.0), (-5.0, 5.0), (0.0, 10.0))
-}
 
-fn create_bp_mesh(
-    display: &glium::Display,
-) -> (glium::VertexBuffer<DisplayVertex>, glium::IndexBuffer<u32>) {
-    create_cube_mesh(display, (0.0, 20.0), (0.0, 20.0), (-0.1, -0.00))
-}
-
-fn create_cube_mesh(
-    display: &glium::Display,
-    x: (f32, f32),
-    y: (f32, f32),
-    z: (f32, f32),
-) -> (glium::VertexBuffer<DisplayVertex>, glium::IndexBuffer<u32>) {
-    let vertex_positions = [
-        // far side (0.0, 0.0, 1.0)
-        vertex([x.0, y.0, z.1]),
-        vertex([x.1, y.0, z.1]),
-        vertex([x.1, y.1, z.1]),
-        vertex([x.0, y.1, z.1]),
-        // near side (0.0, 0.0, -1.0)
-        vertex([x.0, y.1, z.0]),
-        vertex([x.1, y.1, z.0]),
-        vertex([x.1, y.0, z.0]),
-        vertex([x.0, y.0, z.0]),
-        // right side (1.0, 0.0, 0.0)
-        vertex([x.1, y.0, z.0]),
-        vertex([x.1, y.1, z.0]),
-        vertex([x.1, y.1, z.1]),
-        vertex([x.1, y.0, z.1]),
-        // left side (-1.0, 0.0, 0.0)
-        vertex([x.0, y.0, z.1]),
-        vertex([x.0, y.1, z.1]),
-        vertex([x.0, y.1, z.0]),
-        vertex([x.0, y.0, z.0]),
-        // top (0.0, 1.0, 0.0)
-        vertex([x.1, y.1, z.0]),
-        vertex([x.0, y.1, z.0]),
-        vertex([x.0, y.1, z.1]),
-        vertex([x.1, y.1, z.1]),
-        // bottom (0.0, -1.0, 0.0)
-        vertex([x.1, y.0, z.1]),
-        vertex([x.0, y.0, z.1]),
-        vertex([x.0, y.0, z.0]),
-        vertex([x.1, y.0, z.0]),
-    ];
-
-    let index_data: &[u32] = &[
-        0, 1, 2, 2, 3, 0, // far
-        4, 5, 6, 6, 7, 4, // near
-        8, 9, 10, 10, 11, 8, // right
-        12, 13, 14, 14, 15, 12, // left
-        16, 17, 18, 18, 19, 16, // top
-        20, 21, 22, 22, 23, 20, // bottom
-    ];
-
-    let positions = glium::VertexBuffer::new(display, &vertex_positions).unwrap();
-    let indices = glium::IndexBuffer::new(
-        display,
-        glium::index::PrimitiveType::TrianglesList,
-        index_data,
-    )
-    .unwrap();
-    (positions, indices)
-}*/
 
 fn create_build_area(
     display: &glium::Display,
@@ -200,38 +136,19 @@ fn main() {
 
     let mut egui_glium = egui_glium::EguiGlium::new(&display);
 
-    let mut camera_pitch = std::f32::consts::FRAC_PI_4;
-    let mut camera_yaw = -std::f32::consts::FRAC_PI_4 + 0.12;
-    let mut zoom = 400.0;
-    let mut center_pos = (125.0, 105.0);
+
     let mut left_mouse_button_state = ElementState::Released;
     let mut on_render_screen = false;
     let mut in_window = false;
-    let calc_vals = Arc::new(RwLock::new(None));
-    let gcode = Arc::new(RwLock::new(None));
-    let commands = Arc::new(RwLock::new(None));
-    let error = Arc::new(RwLock::new(None));
-    let command_running = Arc::new(RwLock::new(false));
-    let command_state = Arc::new(RwLock::new(String::new()));
-    let refresh = Arc::new(RwLock::new(false));
     let mut index = 0;
     let mut layers = 0;
 
-    let mut cam_view = None;
-    let mut cam_proj = None;
-    let mut dimensions = None;
-
-    let mut closest_point = None;
-    let mut selected = false;
 
     let mut viewer_open = false;
 
     let build_x = 250.0;
     let build_y = 210.0;
     let build_z = 210.0;
-
-    let mut model_path = "".to_string();
-    let mut settings_path = "".to_string();
 
     let model_program =
         glium::Program::from_source(&display, VERTEX_SHADER_SRC, FRAGMENT_SHADER_SRC, None)
@@ -244,11 +161,15 @@ fn main() {
     )
     .unwrap();
 
-    let mut objects: Vec<Object> = vec![];
+    let mut gui_data = GUIData::new(Vec2::new(400.0, 400.0),Vec3::new(build_x,build_y,build_z));
+
+
 
     let mut plot_window_resp = None;
     let mut window_rec = None;
     let mut window_clicked = false;
+
+    let r = gui_data.check_refresh_and_clear();
 
     let (line_positions, line_indices) = create_build_area(&display, build_x, build_y, build_z);
     event_loop.run(move |event, _, control_flow| {
@@ -258,27 +179,7 @@ fn main() {
 
             let needs_repaint = egui_glium.run(&display, |egui_ctx| {
 
-                objects
-                    .iter_mut()
-                    .enumerate()
-                    .for_each(|(index,obj)| {
-                        let in_build_area = obj.aabb.as_ref().map(|aabb| {
-                            !(aabb.min_x < 0.0 || aabb.min_y < 0.0 || aabb.min_z < 0.0 || aabb.max_x > build_x || aabb.max_y > build_y || aabb.max_z > build_z)
-                        }).unwrap_or(false);
-
-                        let this_selected =closest_point.map(|(i,_,_)| i== index && selected).unwrap_or(false);
-
-                         obj.color = match (obj.hovered,in_build_area,this_selected){
-                             (false,false,false) => Vec3::new(1.0, 0.0, 0.0),
-                             (false,true,false) => Vec3::new(1.0, 1.0, 0.0),
-                             (true,true,false) => Vec3::new(0.0, 0.0, 1.0),
-                             (true,false,false) => Vec3::new(1.0, 0.0, 0.0),
-                             (_,false,true) => Vec3::new(1.0, 0.0, 1.0),
-                             (_,true,true) => Vec3::new(0.0, 1.0, 1.0),
-                         };
-
-
-                    });
+                gui_data.update_colors();
 
                 plot_window_resp = None;
                 window_clicked = false;
@@ -287,26 +188,12 @@ fn main() {
                    ui.horizontal(|ui| {
                        ui.label(&get_translated_string(&ctx, lang, "model_path"));
                        if ui.button(&get_translated_string(&ctx, lang,  "choose_model_button")).clicked() {
-                           let paths = FileDialog::new()
-                               .add_filter("Supported Model Types", &["stl", "3mf"])
-                               .show_open_multiple_file()
-                               .unwrap();
-
-                           for path in paths {
-
-                               model_path = path.into_os_string().into_string().unwrap();
-
-                               match load(&model_path, &display)
-                               {
-                                   Ok(objs) => { objects.extend(objs.into_iter()); }
-                                   Err(e) => { *error.write().unwrap() = Some(Errors::SlicerError(e)) }
-                               }
-                           }
+                            gui_data.load_model(    &display);
                        }
                    });
                    ui.horizontal(|ui| {
                        ui.label(&get_translated_string(&ctx, lang, "settings_path"));
-                       let mut short = settings_path.clone();
+                       let mut short = gui_data.get_settings_path().clone();
                        if short.len() > 13{
                            short.truncate(10);
                            short += "...";
@@ -315,30 +202,20 @@ fn main() {
                    });
                    ui.horizontal(|ui| {
                        if ui.button("Choose settings").clicked() {
-                           let path = FileDialog::new()
-                               .add_filter("Supported settings Types", &["json"])
-                               .show_open_single_file()
-                               .unwrap();
-
-                           let path = match path {
-                               Some(path) => path,
-                               None => return,
-                           };
-
-                           settings_path = path.into_os_string().into_string().unwrap();
+                            gui_data.load_settings_file();
                        }
                    });
                    ui.group(|ui| {
-                       objects = objects.drain(..).filter_map(|mut obj| {
-                           let mut remove = false;
-                           let mut duplicate = false;
+
+                       gui_data.get_objects().iter().enumerate()
+                           .for_each(|(i,mut obj)| {
                            ui.horizontal(|ui| {
                                ui.label(obj.name.to_string());
                            });
 
                            let mut changed = false;
 
-                           ui.horizontal(|ui| {
+                           /*ui.horizontal(|ui| {
                                changed |= ui.add(egui::DragValue::new(&mut obj.get_mut_location().x)
                                    .speed(1.0)
                                    .clamp_range(f64::NEG_INFINITY..=f64::INFINITY)
@@ -360,38 +237,32 @@ fn main() {
                            });
 
                            ui.horizontal(|ui| {
-                               remove = ui.button(&get_translated_string(&ctx, lang,"remove")).clicked();
-                               duplicate = ui.button(&get_translated_string(&ctx, lang, "copy")).clicked();
+                               if ui.button(&get_translated_string(&ctx, lang,"remove")).clicked() {
+                                   remove = Some(i);
+                               };
+                               if ui.button(&get_translated_string(&ctx, lang, "copy")).clicked(){
+                                   copy = Some(i)
+                               }
                                if ui.button(&get_translated_string(&ctx, lang, "center")).clicked(){
                                    obj.get_mut_location().x = build_x /2.0;
                                    obj.get_mut_location().y = build_y /2.0;
                                    changed = true;
                                }
 
-                           });
+                           });*/
 
                            if changed{
-                               obj.revalidate_cache();
-                               *gcode.write().unwrap() = None;
-                               *calc_vals.write().unwrap() = None;
+                               //obj.revalidate_cache();
+                               //*gcode.write().unwrap() = None;
+                               //*calc_vals.write().unwrap() = None;
                            }
-
-                           if !remove {
-                               if duplicate {
-                                   Some(vec![obj.make_copy(&display), obj].into_iter())
-                               } else {
-                                   Some(vec![obj].into_iter())
-                               }
-                           } else {
-                               None
-                           }
-                       }).flatten().collect();
+                       });
                    });
 
                    ui.horizontal(|ui| {
 
 
-                       ui.style_mut().spacing.button_padding = Vec2::new(50., 20.);
+                       ui.style_mut().spacing.button_padding = egui::Vec2::new(50., 20.);
                        ui.style_mut().override_text_style = Some(TextStyle::Heading);
 
 
@@ -403,114 +274,17 @@ fn main() {
                            //ui.ctx().set_fonts(fonts);
 
 
-                           if ui.add_enabled(!*command_running.read().unwrap() && !settings_path.is_empty() && !objects.is_empty(), egui::Button::new(&get_translated_string(&ctx, lang, "slice"))).clicked() {
-                               *calc_vals.write().unwrap() = None;
-                               *gcode.write().unwrap() = None;
-                               *error.write().unwrap() = None;
-                               *commands.write().unwrap() = None;
-                               *command_running.write().unwrap() = true;
-
+                           if ui.add_enabled( gui_data.can_slice(), egui::Button::new(&get_translated_string(&ctx, lang, "slice"))).clicked() {
                                index = 0;
-                               layers = 0;
+                                layers = 0;
+                                viewer_open = true;
 
-                               viewer_open = true;
-                               let args :Vec<_>= objects.iter()
-                                   .map(|obj|{
-                                       format!("{{\"Raw\":[\"{}\",{:?}]}} ", obj.file_path.replace('\\', "\\\\"),obj.get_model_matrix().transpose().to_cols_array_2d())
-                                   })
-                                   .collect();
-
-                               let calc_vals_clone = calc_vals.clone();
-                               let commands_clone = commands.clone();
-                               let gcode_clone = gcode.clone();
-                               let error_clone = error.clone();
-                               let command_running_clone = command_running.clone();
-                               let command_state_clone = command_state.clone();
-                               let settings_path_clone = settings_path.clone();
-                               let refresh_clone = refresh.clone();
-
-
-                               std::thread::spawn(move ||{
-
-                                   let mut command = if cfg!(target_os = "linux") {
-                                       Command::new("./slicer/gladius_slicer")
-                                   } else if cfg!(target_os = "windows") {
-                                       Command::new("slicer\\gladius_slicer.exe")
-                                   } else {
-                                       unimplemented!()
-                                   };
-
-                                   for arg in &args {
-                                       //"{\"Raw\":[\"test_3D_models\\3DBenchy.stl\",[[1.0,0.0,0.0,124.0],[0.0,1.0,0.0,105.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]] }"
-                                       command.arg(arg);
-                                       print!("{}",arg.replace('\\', "\\\\").replace('\"', "\\\""));
-                                   }
-
-                                   println!();
-
-                                   let cpus = format!("{}", (num_cpus::get()).max(1));
-
-                                   println!("{}",cpus);
-
-                                   if let Ok(mut child) = command
-                                       .arg("-m")
-                                       .arg("-s")
-                                       .arg( settings_path_clone.replace('\\', "\\\\"))
-                                       .arg("-j")
-                                       .arg(cpus)
-                                       .stdout(Stdio::piped())
-                                       .stderr(Stdio::piped())
-                                       .spawn()
-                                   {
-
-
-                                       // Loop over the output from the first process
-                                       if let Some(ref mut stdout) = child.stdout {
-                                           while let Ok::<Message,_>( msg) = bincode::deserialize_from(&mut *stdout) {
-                                               match msg {
-                                                   Message::CalculatedValues(cv) => {
-                                                       *calc_vals_clone.write().unwrap() = Some(cv);
-                                                   }
-                                                   Message::Commands(cmds) => {
-
-                                                       *commands_clone.write().unwrap() = Some(cmds);
-                                                   }
-                                                   Message::GCode(str) => {
-                                                       *gcode_clone.write().unwrap() = Some(str);
-                                                   }
-                                                   Message::Error(err) => {
-                                                       *error_clone.write().unwrap() = Some(Errors::SlicerError(err));
-                                                   }
-                                                   Message::StateUpdate(msg) =>{
-                                                       *command_state_clone.write().unwrap() = msg;
-                                                   }
-                                                   Message::Warning(_warn) =>{
-                                                   }
-                                               }
-
-                                               *refresh_clone.write().unwrap() = true;
-                                           }
-                                       }
-
-                                       if let Some(ref mut stderr) = child.stderr {
-                                           let buff = BufReader::new(stderr);
-                                           if buff.lines().next().is_some() {
-                                               *error_clone.write().unwrap() = Some(Errors::SlicerCommunicationIssue);
-                                           }
-                                       }
-                                   }
-                                   else{
-                                       *error_clone.write().unwrap() = Some(Errors::SlicerApplicationIssue);
-
-                                   }
-
-                                   *command_running_clone.write().unwrap() = false;
-                               });
+                               gui_data.start_slice();
                            }
                        });
                    });
 
-                   if let Some(cv) = calc_vals.clone().read().unwrap().as_ref() {
+                   if let Some(cv) = gui_data.get_calculated_values(){
                        ui.horizontal(|ui| {
                            ui.label(get_translated_string_argument(&ctx,lang,"plastic_volume_msg",format!("{:.0}",cv.plastic_volume)));
                        });
@@ -524,7 +298,7 @@ fn main() {
                        });
                    };
 
-                   if let Some(err) = error.read().unwrap().as_ref() {
+                   for err in gui_data.get_errors(){
 
                        let (code, message) = err.get_code_and_message();
                        ui.horizontal(|ui| {
@@ -535,18 +309,18 @@ fn main() {
                        });
                    };
 
-                   if *command_running.read().unwrap() {
+                   if gui_data.is_command_running(){
                        ui.horizontal(|ui| {
                            ui.heading("Running");
                        });
                        ui.horizontal(|ui| {
-                           ui.label(format!("Status {}",*command_state.read().unwrap()));
+                           ui.label(format!("Status {}",gui_data.get_command_state()));
                        });
                    }
 
-                   if let Some(str) = gcode.read().unwrap().as_ref() {
+                   if let Some(str) = gui_data.get_gcode() {
                        ui.horizontal(|ui| {
-                           ui.style_mut().spacing.button_padding = Vec2::new(50., 20.);
+                           ui.style_mut().spacing.button_padding = egui::Vec2::new(50., 20.);
                            //ui.style_mut().body_text_style = TextStyle::Heading;
                            ui.style_mut().override_text_style = Some(TextStyle::Heading);
 
@@ -569,10 +343,10 @@ fn main() {
                            });
                        });
                    }
-                   if let Some(cmds) = commands.read().unwrap().as_ref() {
+                   if let Some(cmds) = gui_data.get_commands() {
                         plot_window_resp = egui::Window::new(&get_translated_string(&ctx, lang, "viewer"))
                             .open(&mut viewer_open)
-                            .default_size(vec2(400.0, 400.0))
+                            .default_size(egui::Vec2::new(400.0, 400.0))
                             .show(&egui_ctx, |ui| {
 
 
@@ -661,26 +435,19 @@ fn main() {
                         resp.response
                     }
                 };
-                 //println!("here {} {} {}",full_resp.hovered(),full_resp.dragged(),full_resp.is_pointer_button_down_on());
 
-               //on_render_screen = !full_resp.hovered() && !full_resp.dragged() && !full_resp.is_pointer_button_down_on();
                on_render_screen = !egui_ctx.wants_pointer_input();
             });
-
-
-
-
-
 
             *control_flow = if quit {
                 glutin::event_loop::ControlFlow::Exit
             } else if needs_repaint {
 
-                *refresh.write().unwrap() = false;
+                gui_data.check_refresh_and_clear();
                 display.gl_window().window().request_redraw();
 
                 glutin::event_loop::ControlFlow::Poll
-            } else if *command_running.read().unwrap(){
+            } else if gui_data.is_command_running(){
                 //If command is running keep refreshing
                 glutin::event_loop::ControlFlow::Poll
             }else{
@@ -697,25 +464,7 @@ fn main() {
 
                 // draw things behind egui here
 
-                let camera_vec = glam::Vec3::new(zoom * camera_yaw.cos() * camera_pitch.cos() ,zoom * camera_yaw.sin() * camera_pitch.cos() , zoom * camera_pitch.sin());
-
-                let camera_location = camera_vec + glam::Vec3::new(center_pos.0 ,center_pos.1 , 0.0);
-                //let view = glam::Mat4::from_euler(glam::EulerRot::XYZ, -data.camera_pitch, -data.camera_yaw, 0.0);
-                let view = glam::Mat4::look_at_rh(camera_location,glam::Vec3::new( center_pos.0 ,center_pos.1,0.0),glam::Vec3::new(0.0,0.0,1.0));
-
-                let (width, height) = target.get_dimensions();
-
-                dimensions = Some( (width, height));
-                let aspect_ratio = width as f32 / height as f32;
-
-                cam_proj = Some(glam::Mat4::perspective_infinite_rh(60.0_f32.to_radians(),aspect_ratio,0.1));
-                cam_view = Some(view);
-                let perspective = glam::Mat4::perspective_infinite_rh(60.0_f32.to_radians(),aspect_ratio,0.1).to_cols_array_2d();
-
-                let view :[[f32;4];4] = view.to_cols_array_2d();
-
-
-
+                let (view ,perspective ) =  gui_data.get_camera_view_and_proj_matrix();
 
                 let line_model = glam::Mat4::from_translation(Vec3::new(0.0,0.0,0.0)).to_cols_array_2d();
 
@@ -729,7 +478,10 @@ fn main() {
                     .. Default::default()
                 };
 
-                for obj in &objects{
+                gui_data.update_colors();
+                gui_data.update_screen_dimensions(Vec2::new(target.get_dimensions().0 as f32,target.get_dimensions().1 as f32 ));
+
+                for obj in gui_data.get_objects(){
                     let model = obj.get_model_matrix().to_cols_array_2d();
                     let color = obj.color.to_array();
                     let (positions, indices) = (&obj.vert_buff,&obj.index_buff);//create_mesh(&display);
@@ -748,8 +500,9 @@ fn main() {
         };
 
 
-        if *refresh.read().unwrap() {
-            *refresh.write().unwrap() = false;
+
+
+        if r {
             redraw();
         }
 
@@ -761,7 +514,6 @@ fn main() {
             glutin::event::Event::RedrawRequested(_) if !cfg!(windows) => redraw(),
 
             glutin::event::Event::WindowEvent { event, .. } => {
-
 
                 match event{
                     WindowEvent::CloseRequested | WindowEvent::Destroyed => {
@@ -776,73 +528,9 @@ fn main() {
                             true
                         };
 
-                        if let Some(proj) = cam_proj{
-                            if let Some(view) = cam_view {
-                                if let Some((width, height)) = dimensions {
-
-
-
-
-                                    if on_render_screen {
-                                        let inv_vp = (proj * view).inverse();
-                                        let camera_vec = glam::Vec3::new(zoom * camera_yaw.cos() * camera_pitch.cos(), zoom * camera_yaw.sin() * camera_pitch.cos(), zoom * camera_pitch.sin());
-
-                                        let cam_origin = camera_vec + glam::Vec3::new(center_pos.0, center_pos.1, 0.0);
-
-                                        let mouse_pos = Vec3::new((position.x / (width as f64 * 0.5) - 1.0) as f32, -(position.y / (height as f64 * 0.5) - 1.0) as f32, 1.0);
-
-                                        let world_pos = inv_vp.transform_point3(mouse_pos);
-
-                                        let cam_dir = world_pos.normalize();
-
-                                        if !selected {
-                                            closest_point = objects
-                                                .iter_mut()
-                                                .enumerate()
-                                                .filter_map(|(en, obj)| {
-                                                    obj.hovered = false;
-                                                    obj.intersect_with_ray(cam_origin, cam_dir).map(|p| (en, obj, p))
-                                                })
-                                                .min_by(|(_, _, (ta, _)), (_, _, (tb, _))| ta.partial_cmp(tb).unwrap())
-                                                .map(|(index, obj, point)| (index, point.1,*obj.get_location()));
-
-                                            if let Some((index, _,_)) = closest_point {
-                                                objects[index].hovered = true;
-                                            }
-                                        }else{
-                                            let (index, intersect_point, translation) = closest_point.expect("If selected closest point must be set");
-                                            let z_height = intersect_point.z;
-
-                                            let (x_intercept, y_intercept) ={
-                                                let z_diff = cam_origin.z - z_height;
-                                                let y_over_z_slope =  cam_dir.y / cam_dir.z;
-                                                let x_over_z_slope =  cam_dir.x / cam_dir.z;
-
-                                                let x_diff = x_over_z_slope *  z_diff;
-                                                let y_diff = y_over_z_slope *  z_diff;
-
-                                                (cam_origin.x - x_diff, cam_origin.y - y_diff)
-                                            };
-
-                                            let x_diff =  x_intercept - intersect_point.x;
-                                            let y_diff =  y_intercept - intersect_point.y;
-
-                                            objects[index].get_mut_location().x = translation.x + x_diff;
-                                            objects[index].get_mut_location().y = translation.y + y_diff;
-
-                                            objects[index].revalidate_cache();
-                                            *gcode.write().unwrap() = None;
-                                            *calc_vals.write().unwrap() = None;
-
-                                        }
-
-                                    }
-                                }
-
-                            }
+                        if on_render_screen {
+                            gui_data.mouse_move(Vec2::new(position.x as f32, position.y as f32));
                         }
-
-
 
                         in_window = true;
                     }
@@ -861,31 +549,26 @@ fn main() {
                 match event {
                     DeviceEvent::Button {button, state} => {
                         if button == 1{
-
-                            if closest_point.is_some() && !selected && left_mouse_button_state == ElementState::Released && state == ElementState::Pressed {
-                                selected = true;
+                            if left_mouse_button_state == ElementState::Released && state == ElementState::Pressed {
+                                gui_data.select_button_pressed()
                             }
+                            if state == ElementState::Released {
 
-                            if state == ElementState::Released && selected {
-
-                                selected = false;
+                                gui_data.select_button_released()
                             }
                             left_mouse_button_state = state;
                         }
-
                     }
 
                     DeviceEvent::MouseMotion {delta: (dx,dy)} =>{
-                        if left_mouse_button_state == ElementState::Pressed && on_render_screen && in_window && !selected{
-                            camera_yaw += dx as f32 * -0.01;
-                            camera_pitch = (camera_pitch + dy as f32 * 0.01).min(std::f32::consts::FRAC_PI_2 - 0.001).max(-std::f32::consts::FRAC_PI_2 + 0.001);
+                        if left_mouse_button_state == ElementState::Pressed && on_render_screen && in_window{
+                            gui_data.mouse_move_delta(Vec2::new(dx as f32,dy as f32))
                         }
-
                     }
                     DeviceEvent::MouseWheel {delta} =>{
-                        if  on_render_screen && in_window && !selected {
+                        if  on_render_screen && in_window {
                             if let MouseScrollDelta::LineDelta(_x, y) = delta {
-                                zoom = (zoom * (1.0 - (0.1 * y.signum()))).min(1000.0).max(5.0);
+                                gui_data.mouse_wheel(y)
                             }
                         }
                     }
