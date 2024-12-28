@@ -2,6 +2,7 @@ use crate::vertex;
 use gladius_shared::error::SlicerErrors;
 use gladius_shared::loader::*;
 use glam::{Mat4, Vec3};
+use glium::glutin::surface::WindowSurface;
 use glium::implement_vertex;
 use itertools::*;
 use std::ffi::OsStr;
@@ -59,6 +60,7 @@ pub struct Object {
     location: Vec3,
     default_offset: Vec3,
     scale: Vec3,
+    z_rotation: f32,
     pub color: Vec3,
     pub hovered: bool,
     pub vert_buff: glium::VertexBuffer<DisplayVertex>,
@@ -81,6 +83,18 @@ impl Object {
 
     pub fn get_location(&self) -> &Vec3 {
         &self.location
+    }
+
+    pub fn set_z_rotation(&mut self, z: f32) {
+        self.z_rotation = z;
+    }
+
+    pub fn get_mut_z_rotation(&mut self) -> &mut f32 {
+        &mut self.z_rotation
+    }
+
+    pub fn get_z_rotation(&self) -> &f32 {
+        &self.z_rotation
     }
 
     pub fn get_mut_scale(&mut self) -> &mut Vec3 {
@@ -144,7 +158,7 @@ impl Object {
         self.aabb = Some(aabb);
     }
 
-    pub fn make_copy(&self, display: &glium::Display) -> Self {
+    pub fn make_copy(&self, display: &glium::Display<WindowSurface>) -> Self {
         let positions = glium::VertexBuffer::new(display, &self.vert_buff.read().unwrap()).unwrap();
         let indices = glium::IndexBuffer::new(
             display,
@@ -157,6 +171,7 @@ impl Object {
             name: self.name.clone(),
             file_path: self.file_path.clone(),
             location: self.location,
+            z_rotation: self.z_rotation,
             default_offset: self.default_offset,
             scale: self.scale,
             color: self.color,
@@ -172,6 +187,7 @@ impl Object {
         glam::Mat4::from_translation(self.location)
             * glam::Mat4::from_scale(self.scale)
             * glam::Mat4::from_translation(self.default_offset)
+            * glam::Mat4::from_rotation_z(self.z_rotation.to_radians())
     }
 
     pub fn intersect_with_ray(&mut self, ray_origin: Vec3, ray_dir: Vec3) -> Option<(f32, Vec3)> {
@@ -315,7 +331,7 @@ impl Object {
     }*/
 }
 
-pub fn load(filepath: &str, display: &glium::Display) -> Result<Vec<Object>, SlicerErrors> {
+pub fn load(filepath: &str, display: &glium::Display<WindowSurface>) -> Result<Vec<Object>, SlicerErrors> {
     let model_path = Path::new(filepath);
     let extension = model_path
         .extension()
@@ -375,6 +391,7 @@ pub fn load(filepath: &str, display: &glium::Display) -> Result<Vec<Object>, Sli
                 name: model_path.to_string_lossy().to_string(),
                 file_path: filepath.to_string(),
                 location: Vec3::new(0.0, 0.0, 0.0),
+                z_rotation: 0.0,
                 scale: Vec3::new(1.0, 1.0, 1.0),
                 default_offset: Vec3::new(-(max_x + min_x) / 2.0, -(max_y + min_y) / 2.0, -min_z),
                 color: Vec3::new(1.0, 1.0, 0.0),
